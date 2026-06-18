@@ -1,6 +1,3 @@
-import math
-
-
 DEFAULT_COURSE_DATA = {
     "course": {
         "courseName": "Professional Ethics and Sustainable Engineering",
@@ -122,77 +119,54 @@ def calculate_indirect_attainment(cos, pos, mappings, indirect_survey):
     return {"scale": scale, "coResults": co_results, "poScores": po_scores}
 
 
-def _parse_co_ids(co_value):
-    """Parse single or multi-CO value like 'CO1', 'CO1,CO2', 'CO1/CO2'."""
-    parts = [p.strip().upper() for p in str(co_value or "").replace("/", ",").split(",") if p.strip()]
-    return [p for p in parts if p.startswith("CO") and p[2:].isdigit()]
-
-
 def _build_co_marks_from_assessments(cos, assessments, students):
     """
-    Build per-student scaled CO marks from all assessments.
+    Build per-student raw CO marks by directly summing question marks across
+    all assessments — no weightage scaling applied to marks.
 
-    The question 'id' field in each assessment is the uid produced by
-    parse_marks_workbook (e.g. 'Quiz1__CO1').  Student rawMarks use the
-    same uid as key, so lookup is direct.
+    The question 'id' field (uid) produced by parse_marks_workbook is used
+    as the key in student rawMarks.  For multi-CO questions the mark is
+    already split (rawMark / splitCount) and stored under '<qid>__<CO_ID>'.
 
-    Assignment questions (label starts with 'A') carry 0.75 weight.
-    Weightages are normalised to sum to 100.
+    CO total marks = sum of maxMarks for all questions mapped to that CO
+    across all assessments.  Student attained marks = direct sum of raw
+    marks for those questions.
     """
-    def _q_weight(label):
-        return 0.75 if str(label).strip().upper().startswith("A") else 1.0
-
-    total_weight = sum(safe_float(a.get("weightage", 0)) for a in assessments) or 100
-
-    # question_lookup: uid -> info dict
+    # Build flat question lookup: (assessment_id, uid) -> {co, maxMarks}
+    # Key includes assessment_id to avoid uid collisions across different assessments
     question_lookup = {}
     for assessment in assessments:
-        raw_weight = safe_float(assessment.get("weightage", 100))
-        a_weight = raw_weight * 100 / total_weight  # normalised
-        qs = assessment.get("questions", [])
-
-        # effective total for this assessment = sum(splitMax * qWeight)
-        # splitMax is already stored in maxMarks (raw / splitCount)
-        effective_total = sum(
-            safe_float(q.get("maxMarks") or q.get("rawMaxMarks")) * _q_weight(q.get("label") or q.get("id", ""))
-            for q in qs
-        )
-        scale_factor = (a_weight / effective_total) if effective_total else 1.0
-
-        for q in qs:
+        a_id = assessment.get("id", "")
+        for q in assessment.get("questions", []):
             uid = q.get("id")
-            split_max = safe_float(q.get("maxMarks") or q.get("rawMaxMarks"))
-            qw = _q_weight(q.get("label") or uid)
-            question_lookup[uid] = {
+            key = (a_id, uid)
+            question_lookup[key] = {
                 "co": q.get("co"),
-                "splitMax": split_max,          # already split by CO count
-                "scaledMax": round(split_max * qw * scale_factor, 4),
-                "scaleFactor": scale_factor,
-                "qWeight": qw,
+                "maxMarks": safe_float(q.get("maxMarks") or q.get("rawMaxMarks")),
+                "uid": uid,
+                "assessment_id": a_id,
             }
 
-    # Per CO: total scaled max marks
+    # Per CO: total raw max marks across all assessments
     co_max = {}
     for co in cos:
         co_id = co.get("id")
         co_max[co_id] = round(
-            sum(v["scaledMax"] for v in question_lookup.values() if v["co"] == co_id), 2
+            sum(v["maxMarks"] for v in question_lookup.values() if v["co"] == co_id), 2
         )
 
-    # Per student per CO: scaled marks attained
+    # Per student per CO: raw marks attained (sum of split marks across all assessments)
     student_co_marks = []
     for student in students:
         raw_marks = student.get("rawMarks") or student.get("marks") or {}
         co_attained = {}
         for co in cos:
             co_id = co.get("id")
-            attained = 0.0
-            for uid, qinfo in question_lookup.items():
-                if qinfo["co"] != co_id:
-                    continue
-                # rawMarks[uid] already holds the split value (raw / splitCount)
-                raw = safe_float(raw_marks.get(uid))
-                attained += raw * qinfo["qWeight"] * qinfo["scaleFactor"]
+            attained = sum(
+                safe_float(raw_marks.get(v["uid"]))
+                for v in question_lookup.values()
+                if v["co"] == co_id
+            )
             co_attained[co_id] = round(attained, 2)
         student_co_marks.append(co_attained)
 

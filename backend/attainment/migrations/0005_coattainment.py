@@ -3,13 +3,11 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
-
 class Migration(migrations.Migration):
 
     dependencies = [
         ('attainment', '0004_student_studentmark'),
     ]
-
     operations = [
         migrations.CreateModel(
             name='COAttainment',
