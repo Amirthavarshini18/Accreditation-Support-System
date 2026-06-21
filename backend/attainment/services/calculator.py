@@ -18,7 +18,7 @@ DEFAULT_COURSE_DATA = {
         {"id": "CO4", "description": "Communicate technical findings with ethical reasoning.", "target": 60},
         {"id": "CO5", "description": "Demonstrate independent learning and teamwork.", "target": 60},
     ],
-    "pos": ["PO1", "PO2", "PO3", "PO4", "PO5", "PO6", "PO7", "PO8", "PO9", "PO10", "PO11"],
+    "pos": ["PO1", "PO2", "PO3", "PO4", "PO5", "PO6", "PO7", "PO8", "PO9", "PO10", "PO11", "PSO1", "PSO2"],
     "evaluationPolicy": {
         "interimTest": 35,
         "endExam": 50,
@@ -26,11 +26,11 @@ DEFAULT_COURSE_DATA = {
         "other": 0,
     },
     "mapping": {
-        "CO1": {"PO1": 3, "PO2": 2, "PO3": 3, "PO4": 2, "PO5": 0, "PO6": 0, "PO7": 0, "PO8": 0, "PO9": 0, "PO10": 0, "PO11": 0},
-        "CO2": {"PO1": 3, "PO2": 3, "PO3": 3, "PO4": 2, "PO5": 0, "PO6": 0, "PO7": 0, "PO8": 0, "PO9": 0, "PO10": 0, "PO11": 0},
-        "CO3": {"PO1": 3, "PO2": 1, "PO3": 3, "PO4": 2, "PO5": 1, "PO6": 0, "PO7": 0, "PO8": 0, "PO9": 0, "PO10": 0, "PO11": 0},
-        "CO4": {"PO1": 3, "PO2": 3, "PO3": 3, "PO4": 2, "PO5": 1, "PO6": 0, "PO7": 0, "PO8": 0, "PO9": 0, "PO10": 0, "PO11": 0},
-        "CO5": {"PO1": 0, "PO2": 0, "PO3": 0, "PO4": 0, "PO5": 0, "PO6": 0, "PO7": 0, "PO8": 0, "PO9": 0, "PO10": 0, "PO11": 0},
+        "CO1": {"PO1": 1, "PO2": 1, "PO3": 0, "PO4": 0, "PO5": 1, "PO6": 0, "PO7": 0, "PO8": 0, "PO9": 0, "PO10": 0, "PO11": 0, "PSO1": 1, "PSO2": 1},
+        "CO2": {"PO1": 1, "PO2": 1, "PO3": 0, "PO4": 0, "PO5": 1, "PO6": 0, "PO7": 0, "PO8": 0, "PO9": 0, "PO10": 0, "PO11": 0, "PSO1": 1, "PSO2": 1},
+        "CO3": {"PO1": 1, "PO2": 1, "PO3": 0, "PO4": 0, "PO5": 1, "PO6": 1, "PO7": 0, "PO8": 0, "PO9": 0, "PO10": 0, "PO11": 0, "PSO1": 1, "PSO2": 1},
+        "CO4": {"PO1": 1, "PO2": 1, "PO3": 1, "PO4": 0, "PO5": 1, "PO6": 1, "PO7": 0, "PO8": 0, "PO9": 0, "PO10": 0, "PO11": 0, "PSO1": 0, "PSO2": 1},
+        "CO5": {"PO1": 0, "PO2": 0, "PO3": 0, "PO4": 0, "PO5": 0, "PO6": 0, "PO7": 0, "PO8": 0, "PO9": 0, "PO10": 0, "PO11": 0, "PSO1": 0, "PSO2": 0},
     },
     "assessments": [],
     "students": [],
@@ -52,7 +52,6 @@ def safe_float(value, default=0):
         return float(value)
     except (TypeError, ValueError):
         return default
-
 
 def calculate_attainment_level(percentage):
     """
@@ -182,6 +181,7 @@ def calculate_course_attainment(payload):
     mappings = payload.get("mapping", {})
     indirect_survey = payload.get("indirectSurvey", {})
     modes = payload.get("attainmentModes", {"direct": True, "indirect": True})
+    pi_rubric = payload.get("piRubric", {"t1": 10, "t2": 34, "t3": 68})
 
     total_students = len(students)
 
@@ -287,4 +287,5 @@ def calculate_course_attainment(payload):
             {"level": 2, "percentage": 50},
             {"level": 1, "percentage": 30},
         ],
+        "piRubric": pi_rubric,
     }
