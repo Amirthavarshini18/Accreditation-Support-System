@@ -6,7 +6,7 @@ import pandas as pd
 
 from .models import Faculty
 from .services.calculator import DEFAULT_COURSE_DATA, calculate_course_attainment
-from .services.excel_processor import parse_accreditation_workbook, parse_marks_workbook
+from .services.excel_parser import parse_accreditation_workbook, parse_marks_workbook
 
 
 def read_uploaded_table(uploaded_file):

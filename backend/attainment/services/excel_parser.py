@@ -13,7 +13,8 @@ def _clean(value):
 def _number(value, default=0):
     value = _clean(value)
     try:
-        return round(float(value), 2)
+        n = float(value)
+        return round(n, 2)
     except (TypeError, ValueError):
         return default
 
@@ -26,18 +27,23 @@ def _normalize_co(value):
 
 
 def _is_co(value):
-    """Accept single CO (CO1) or multi-CO (CO1,CO2 / CO1/CO2). Also handles C02 typo."""
+    """Accept single CO (CO1) or multi-CO (CO1,CO2 / CO1/CO2 / CO1&CO2). Also handles C02 typo.
+    Coerces non-string values to string first so numeric-typed Excel cells don't get skipped."""
+    if value is None:
+        return False
     if not isinstance(value, str):
+        value = str(value).strip()
+    if not value:
         return False
     normalized = _normalize_co(value)
-    parts = [p.strip() for p in normalized.replace("/", ",").split(",") if p.strip()]
+    parts = [p.strip() for p in normalized.replace("/", ",").replace("&", ",").split(",") if p.strip()]
     return bool(parts) and all(p.startswith("CO") and p[2:].isdigit() for p in parts)
 
 
 def _parse_cos(value):
-    """Return list of normalized CO ids from a cell value like 'CO1', 'CO1,CO2', 'C02/CO1'."""
+    """Return list of normalized CO ids from a cell value like 'CO1', 'CO1,CO2', 'C02/CO1', 'CO1&CO2'."""
     normalized = _normalize_co(str(value))
-    parts = [p.strip() for p in normalized.replace("/", ",").split(",") if p.strip()]
+    parts = [p.strip() for p in normalized.replace("/", ",").replace("&", ",").split(",") if p.strip()]
     return [p for p in parts if p.startswith("CO") and p[2:].isdigit()]
 
 
@@ -325,7 +331,10 @@ def parse_marks_workbook(uploaded_file):
     # multiple columns (e.g. T1Q1A and T1Q1B both named "T1Q1").          #
     # ------------------------------------------------------------------ #
     questions = []
-    seen_col_ids = {}   # question_id -> occurrence count (for same-label dedup)
+    # Tracks how many distinct physical columns have used each question label.
+    # Must increment ONCE per column, not once per CO, so multi-CO columns
+    # (e.g. Q5 mapped to CO1,CO2) don't inflate the counter and produce wrong uids.
+    seen_col_ids = {}
 
     for column in range(1, sheet.max_column + 1):
         co_raw = _text(sheet.cell(co_row, column).value)
@@ -335,29 +344,30 @@ def parse_marks_workbook(uploaded_file):
         if not _is_co(co_raw) or not question_id or question_id.lower() == "total" or max_marks <= 0:
             continue
 
-        co_ids_for_q = _parse_cos(co_raw)   # e.g. ['CO1','CO2','CO3','CO4']
+        co_ids_for_q = _parse_cos(co_raw)   # e.g. ['CO1', 'CO2'] for a shared question
         split = len(co_ids_for_q) or 1
-        split_max = round(max_marks / split, 4)
+        split_max = round(max_marks / split, 2)
         weight = _assignment_weight(question_id)
 
-        # Deduplicate same question_id across different columns
+        # Increment ONCE per physical column (before the per-CO loop)
         seen_col_ids[question_id] = seen_col_ids.get(question_id, 0) + 1
         occurrence = seen_col_ids[question_id]
         col_base = question_id if occurrence == 1 else f"{question_id}_x{occurrence}"
 
         for co in co_ids_for_q:
-            # Unique storage key: always includes CO suffix when multi-CO
+            # Multi-CO: uid = 'Q5__CO1', 'Q5__CO2'  — each split gets a unique key
+            # Single-CO: uid = 'Q5'                  — backward compatible
             uid = f"{col_base}__{co}" if split > 1 else col_base
             questions.append({
-                "id": uid,           # unique key used in marks dict
-                "label": question_id,  # display label (original)
+                "id": uid,
+                "label": question_id,
                 "co": co,
                 "maxMarks": split_max,
                 "rawMaxMarks": max_marks,
                 "splitCount": split,
                 "weight": weight,
-                "column": column,    # physical column to read raw value from
-                "colBase": col_base, # base key for raw mark lookup
+                "column": column,
+                "colBase": col_base,
             })
 
     if not questions:
@@ -388,14 +398,14 @@ def parse_marks_workbook(uploaded_file):
         if all(_clean(sheet.cell(row, col).value) is None for col in unique_cols):
             continue
 
-        # Read raw value per column once
+        # Read raw value per physical column exactly once
         col_raw = {col: _number(sheet.cell(row, col).value) for col in unique_cols}
 
         raw_marks = {}
         for q in questions:
             raw_val = col_raw[q["column"]]
-            # Split equally across COs
-            raw_marks[q["id"]] = round(raw_val / q["splitCount"], 4)
+            # For multi-CO: divide equally; for single-CO: splitCount=1 so no change
+            raw_marks[q["id"]] = round(raw_val / q["splitCount"], 2)
 
         students.append({
             "registerNumber": _text(sheet.cell(row, 2).value, f"REG{int(serial):03d}"),
@@ -415,6 +425,7 @@ def parse_marks_workbook(uploaded_file):
     co_summary = []
     for co_id in co_ids_sorted:
         co_qs = [q for q in questions if q["co"] == co_id]
+        # totalMarks = sum of split maxMarks (what the student is actually scored out of)
         total_marks = round(sum(q["maxMarks"] for q in co_qs), 2)
         rows = []
         for student in students:
@@ -423,7 +434,7 @@ def parse_marks_workbook(uploaded_file):
                 "registerNumber": student["registerNumber"],
                 "name": student["name"],
                 "totalMarks": total_marks,
-                "marksAttained": attained,
+                "marksAttained": round(attained, 2),
             })
         co_summary.append({"co": co_id, "totalMarks": total_marks, "rows": rows})
 

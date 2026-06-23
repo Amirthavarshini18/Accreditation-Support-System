@@ -73,13 +73,15 @@ def calculate_attainment_level(percentage):
 def calculate_po_attainment(co_scores, mappings):
     """
     Weighted average: PO_score = sum(CO_score * mapping_weight) / sum(mapping_weight)
+    Skips entries where weight is 0 or None (null from frontend means no mapping).
     """
     po_totals = {}
     po_weights = {}
     for co, po_map in mappings.items():
         co_score = co_scores.get(co, 0)
         for po, weight in po_map.items():
-            if weight == 0:
+            # None = below threshold ("—" in UI), 0 = no connection — both skip
+            if not weight:
                 continue
             po_totals[po] = po_totals.get(po, 0) + co_score * weight
             po_weights[po] = po_weights.get(po, 0) + weight
@@ -120,41 +122,50 @@ def calculate_indirect_attainment(cos, pos, mappings, indirect_survey):
 
 def _build_co_marks_from_assessments(cos, assessments, students):
     """
-    Build per-student raw CO marks by directly summing question marks across
-    all assessments — no weightage scaling applied to marks.
+    Build per-student raw CO marks by summing question marks across all assessments.
 
-    The question 'id' field (uid) produced by parse_marks_workbook is used
-    as the key in student rawMarks.  For multi-CO questions the mark is
-    already split (rawMark / splitCount) and stored under '<qid>__<CO_ID>'.
+    Each question entry has:
+      - id  (uid): the key used in student rawMarks / marks
+      - co: which CO this question maps to
+      - maxMarks: already-split max value (rawMaxMarks / splitCount)
 
-    CO total marks = sum of maxMarks for all questions mapped to that CO
-    across all assessments.  Student attained marks = direct sum of raw
-    marks for those questions.
+    CO total marks  = sum of maxMarks for all questions mapped to that CO,
+                      across all assessments.
+    Student attained = sum of rawMarks[uid] for those same questions.
+
+    Both sides are summed identically so the percentage is always correct.
+    We store a lookup of (assessment_id, uid) -> question so we can also
+    compute per-assessment totals if needed in future.
     """
-    # Build flat question lookup: (assessment_id, uid) -> {co, maxMarks}
-    # Key includes assessment_id to avoid uid collisions across different assessments
-    question_lookup = {}
+    # Flat list of (assessment_id, uid, co, maxMarks) — one entry per question/CO pair
+    question_entries = []
     for assessment in assessments:
         a_id = assessment.get("id", "")
         for q in assessment.get("questions", []):
             uid = q.get("id")
-            key = (a_id, uid)
-            question_lookup[key] = {
-                "co": q.get("co"),
-                "maxMarks": safe_float(q.get("maxMarks") or q.get("rawMaxMarks")),
-                "uid": uid,
+            if not uid:
+                continue
+            question_entries.append({
                 "assessment_id": a_id,
-            }
+                "uid": uid,
+                "co": q.get("co"),
+                # Use maxMarks (the already-split value) which maps 1-to-1 with rawMarks[uid].
+                # Fall back to rawMaxMarks only if maxMarks is absent (None), not if it is 0.
+                "maxMarks": safe_float(
+                    q["maxMarks"] if q.get("maxMarks") is not None else q.get("rawMaxMarks")
+                ),
+            })
 
-    # Per CO: total raw max marks across all assessments
+    # Per CO: total max marks = sum of all question maxMarks for that CO
     co_max = {}
     for co in cos:
         co_id = co.get("id")
         co_max[co_id] = round(
-            sum(v["maxMarks"] for v in question_lookup.values() if v["co"] == co_id), 2
+            sum(e["maxMarks"] for e in question_entries if e["co"] == co_id), 2
         )
 
-    # Per student per CO: raw marks attained (sum of split marks across all assessments)
+    # Per student per CO: sum rawMarks[uid] for every question of that CO
+    # rawMarks keys are the uid values from the question list.
     student_co_marks = []
     for student in students:
         raw_marks = student.get("rawMarks") or student.get("marks") or {}
@@ -162,9 +173,9 @@ def _build_co_marks_from_assessments(cos, assessments, students):
         for co in cos:
             co_id = co.get("id")
             attained = sum(
-                safe_float(raw_marks.get(v["uid"]))
-                for v in question_lookup.values()
-                if v["co"] == co_id
+                safe_float(raw_marks.get(e["uid"]))
+                for e in question_entries
+                if e["co"] == co_id
             )
             co_attained[co_id] = round(attained, 2)
         student_co_marks.append(co_attained)
@@ -208,9 +219,9 @@ def calculate_course_attainment(payload):
             student_breakup.append({
                 "registerNumber": student.get("registerNumber", ""),
                 "name": student.get("name", ""),
-                "obtained": obtained,
-                "maxMarks": max_marks,
-                "percentage": percentage,
+                "obtained": round(obtained, 2),
+                "maxMarks": round(max_marks, 2),
+                "percentage": round(percentage, 2),
                 "achieved": achieved,
             })
 
@@ -255,11 +266,15 @@ def calculate_course_attainment(payload):
     # CO-PO contribution breakdown
     po_contributions = {}
     for po in pos:
-        po_weight = sum(safe_float(mappings.get(co.get("id"), {}).get(po)) for co in cos)
+        po_weight = sum(
+            safe_float(mappings.get(co.get("id"), {}).get(po) or 0)
+            for co in cos
+        )
         po_contributions[po] = {}
         for co in cos:
             co_id = co.get("id")
-            weight = safe_float(mappings.get(co_id, {}).get(po))
+            raw_w = mappings.get(co_id, {}).get(po)
+            weight = safe_float(raw_w) if raw_w is not None else 0
             contribution = (co_scores.get(co_id, 0) * weight / po_weight) if po_weight else 0
             po_contributions[po][co_id] = round(contribution, 2)
 
