@@ -1,12 +1,10 @@
 import React, { useState } from "react";
 import axios from "axios";
-import { useNavigate } from "react-router-dom";
 import { useApp } from "../AppContext";
 import { API_BASE } from "../constants";
 
 export default function Login() {
   const { login } = useApp();
-  const navigate = useNavigate();
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,7 +17,6 @@ export default function Login() {
       const res = await axios.post(`${API_BASE}/auth/login/`, form);
       if (!res.data.success) throw new Error(res.data.message || "Login failed");
       login(res.data.faculty);
-      navigate("/dashboard");
     } catch (err) {
       setError(err.response?.data?.message || err.message || "Login failed");
     } finally {

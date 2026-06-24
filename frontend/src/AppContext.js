@@ -84,12 +84,14 @@ export function AppProvider({ children }) {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
 
   function login(facultyData) {
     localStorage.setItem("faculty", JSON.stringify(facultyData));
     setFaculty(facultyData);
     setCourseData(initialState(facultyData));
     setReport(null);
+    setShowWelcome(true);
   }
 
   function logout() {
@@ -117,6 +119,7 @@ export function AppProvider({ children }) {
       error, setError,
       loading, setLoading,
       resetData,
+      showWelcome, setShowWelcome,
     }}>
       {children}
     </AppContext.Provider>

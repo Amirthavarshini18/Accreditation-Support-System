@@ -7,17 +7,8 @@ import {
   WK_LIST, PO_COMPETENCIES, BLOOMS_LEVELS, SDG_LIST,
 } from "../constants";
 
-const SESSION_OPTIONS = [
-  "Odd Semester (July – November)",
-  "Even Semester (December – April)",
-  "Summer Session (May – June)",
-  "Winter Session (November – December)",
-  "Annual",
-];
-
+const SEMESTER_OPTIONS = ["Monsoon Semester", "Winter Semester"];
 const COURSE_YEAR_OPTIONS = ["I", "II", "III", "IV"];
-const SEMESTER_OPTIONS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
-const PROGRAMME_OPTIONS = ["B.Tech", "M.Tech", "MBA", "MCA", "BCA", "B.Sc", "M.Sc", "Ph.D", "Diploma"];
 
 // Controlled number input
 function NumInput({ value, onChange, onBlur, min, max, style }) {
@@ -244,17 +235,14 @@ export default function CourseDetails() {
           <label>Academic Year
             <input value={c.academicYear || ""} onChange={(e) => update("academicYear", e.target.value)} placeholder="e.g. 2025-26" />
           </label>
-          <label>Session / Semester
+          <label>Semester
             <select value={c.semester || ""} onChange={(e) => update("semester", e.target.value)}>
-              <option value="">Select session…</option>
-              {SESSION_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+              <option value="">Select semester…</option>
+              {SEMESTER_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </label>
           <label>Programme
-            <select value={c.programme || ""} onChange={(e) => update("programme", e.target.value)}>
-              <option value="">Select programme…</option>
-              {PROGRAMME_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
+            <input value={c.programme || ""} onChange={(e) => update("programme", e.target.value)} placeholder="e.g. B.Tech" />
           </label>
           <label>Specialization
             <input value={c.specialization || ""} onChange={(e) => update("specialization", e.target.value)} placeholder="e.g. Civil Engineering" />
@@ -266,10 +254,7 @@ export default function CourseDetails() {
             </select>
           </label>
           <label>Course Semester
-            <select value={c.courseSemester || ""} onChange={(e) => update("courseSemester", e.target.value)}>
-              <option value="">Select semester…</option>
-              {SEMESTER_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <input value={c.courseSemester || ""} onChange={(e) => update("courseSemester", e.target.value)} placeholder="e.g. VI" />
           </label>
           <label>Credits
             <input value={c.credits || ""} onChange={(e) => update("credits", e.target.value)} placeholder="e.g. 3" />

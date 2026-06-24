@@ -82,7 +82,7 @@ export default function Layout({ children }) {
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-          {!collapsed && <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600 }}>Collapse</span>}
+          {!collapsed && <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600 }}></span>}
         </button>
 
         <nav className="sidebar-nav">
