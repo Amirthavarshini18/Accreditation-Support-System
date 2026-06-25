@@ -2,6 +2,7 @@ import React from "react";
 import { createPortal } from "react-dom";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { AppProvider, useApp } from "./AppContext";
+import { downloadIATemplate, downloadESETemplate, downloadCATemplate } from "./utils/templateGenerator";
 
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
@@ -27,6 +28,12 @@ const guideItems = [
   { title: "Washington Accord Mapping", desc: "CO to WK connections and derived CO-PO-PSO mappings for automated attainment calculation." },
 ];
 
+const TEMPLATES = [
+  { label: "IA Template", desc: "Internal Assessment", fn: downloadIATemplate, color: "#2563eb", bg: "#eff6ff", border: "#bfdbfe" },
+  { label: "ESE Template", desc: "End Semester Exam", fn: downloadESETemplate, color: "#7c3aed", bg: "#f5f3ff", border: "#ddd6fe" },
+  { label: "CA Template", desc: "Continuous Assessment", fn: downloadCATemplate, color: "#059669", bg: "#ecfdf5", border: "#a7f3d0" },
+];
+
 function WelcomeModal() {
   const { showWelcome, setShowWelcome } = useApp();
   const navigate = useNavigate();
@@ -48,8 +55,29 @@ function WelcomeModal() {
         <p className="modal-body-note">
           This system will guide you step by step through course configuration, mapping, marks upload, attainment calculation, and report generation.
         </p>
+
+        <div className="modal-templates-section">
+          <p className="modal-templates-label">📥 Download Excel Templates</p>
+          <div className="modal-templates-grid">
+            {TEMPLATES.map((t) => (
+              <button
+                key={t.label}
+                onClick={t.fn}
+                className="modal-template-btn"
+                style={{ borderColor: t.border, color: t.color, background: t.bg }}
+              >
+                <span style={{ fontSize: 18 }}>⬇</span>
+                <span>
+                  <strong style={{ display: "block", fontSize: 13 }}>{t.label}</strong>
+                  <span style={{ fontSize: 11, opacity: 0.8 }}>{t.desc}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <button className="modal-btn" onClick={() => { setShowWelcome(false); navigate("/dashboard"); }}>
-          I Understand, Continue
+          I Understand, Continue →
         </button>
         <p className="modal-footer-note">
           Note: Please ensure Excel files follow the required CO header format before upload.

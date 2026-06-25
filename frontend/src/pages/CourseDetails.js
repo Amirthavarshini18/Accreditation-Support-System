@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState,useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp, blankWkMapping } from "../AppContext";
 import {
@@ -52,79 +52,208 @@ function BloomsPills({ selected = [], onChange }) {
   );
 }
 
-// SDG multi-select dropdown
-function SdgDropdown({ selected = [], onChange }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+// SDG colours matching UN official palette
+const SDG_COLORS = [
+  { bg: "#e5243b", text: "#fff" }, // SDG1
+  { bg: "#dda63a", text: "#fff" }, // SDG2
+  { bg: "#4c9f38", text: "#fff" }, // SDG3
+  { bg: "#c5192d", text: "#fff" }, // SDG4
+  { bg: "#ff3a21", text: "#fff" }, // SDG5
+  { bg: "#26bde2", text: "#fff" }, // SDG6
+  { bg: "#fcc30b", text: "#1e293b" }, // SDG7
+  { bg: "#a21942", text: "#fff" }, // SDG8
+  { bg: "#fd6925", text: "#fff" }, // SDG9
+  { bg: "#dd1367", text: "#fff" }, // SDG10
+  { bg: "#fd9d24", text: "#fff" }, // SDG11
+  { bg: "#bf8b2e", text: "#fff" }, // SDG12
+  { bg: "#3f7e44", text: "#fff" }, // SDG13
+  { bg: "#0a97d9", text: "#fff" }, // SDG14
+  { bg: "#56c02b", text: "#fff" }, // SDG15
+  { bg: "#00689d", text: "#fff" }, // SDG16
+  { bg: "#19486a", text: "#fff" }, // SDG17
+];
 
-  useEffect(() => {
-    function handler(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+// Full-screen SDG picker modal
+function SdgPicker({ selected = [], onChange, onClose }) {
+  const [local, setLocal] = useState([...selected]);
 
   const toggle = (sdgId) => {
-    const next = selected.includes(sdgId) ? selected.filter((s) => s !== sdgId) : [...selected, sdgId];
-    onChange(next);
+    setLocal((prev) =>
+      prev.includes(sdgId) ? prev.filter((s) => s !== sdgId) : [...prev, sdgId]
+    );
   };
 
   return (
-    <div ref={ref} style={{ position: "relative", width: "100%" }}>
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 2000,
+        background: "rgba(17,30,44,0.55)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 20,
+      }}
+      onClick={onClose}
+    >
       <div
-        onClick={() => setOpen((o) => !o)}
         style={{
-          border: "1px solid var(--line)", borderRadius: 6, padding: "7px 10px",
-          background: "#fff", cursor: "pointer", fontSize: 13, minHeight: 36,
-          display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center",
-          color: selected.length ? "var(--ink)" : "#94a3b8",
+          background: "#fff", borderRadius: 14,
+          boxShadow: "0 24px 60px rgba(17,30,44,0.22)",
+          width: "min(820px, 100%)", maxHeight: "88vh",
+          display: "flex", flexDirection: "column",
+          overflow: "hidden",
         }}
+        onClick={(e) => e.stopPropagation()}
       >
-        {selected.length === 0 && <span>Select SDGs…</span>}
-        {selected.map((s) => (
-          <span key={s} style={{
-            background: "#e0f7fa", color: "#006064", border: "1px solid #80deea",
-            borderRadius: 10, padding: "1px 7px", fontSize: 11, fontWeight: 700,
-          }}>{s}
-            <span
-              onClick={(e) => { e.stopPropagation(); toggle(s); }}
-              style={{ marginLeft: 4, cursor: "pointer", fontWeight: 900 }}>×</span>
-          </span>
-        ))}
-        <span style={{ marginLeft: "auto", color: "var(--muted)", fontSize: 12 }}>{open ? "▲" : "▼"}</span>
-      </div>
-      {open && (
+        {/* Header */}
         <div style={{
-          position: "absolute", zIndex: 999, top: "calc(100% + 4px)", left: 0, right: 0,
-          background: "#fff", border: "1px solid var(--line)", borderRadius: 8,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.12)", maxHeight: 260, overflowY: "auto",
+          padding: "18px 24px", borderBottom: "1px solid #e2e8f0",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
         }}>
-          {SDG_LIST.map((sdg) => {
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: "#1e293b" }}>
+              Select Sustainable Development Goals
+            </div>
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+              {local.length} of 17 selected — click a goal to toggle
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              onClick={() => setLocal(SDG_LIST.map((s) => s.split(":")[0]))}
+              style={{ fontSize: 12, padding: "6px 12px", background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", borderRadius: 6 }}
+            >Select All</button>
+            <button
+              onClick={() => setLocal([])}
+              style={{ fontSize: 12, padding: "6px 12px", background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", borderRadius: 6 }}
+            >Clear All</button>
+          </div>
+        </div>
+
+        {/* Grid of SDGs */}
+        <div style={{
+          padding: "20px 24px", overflowY: "auto",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+          gap: 10,
+        }}>
+          {SDG_LIST.map((sdg, idx) => {
             const sdgId = sdg.split(":")[0];
-            const active = selected.includes(sdgId);
+            const label = sdg.split(":")[1]?.trim();
+            const col = SDG_COLORS[idx] || { bg: "#64748b", text: "#fff" };
+            const active = local.includes(sdgId);
             return (
-              <div key={sdgId}
+              <div
+                key={sdgId}
                 onClick={() => toggle(sdgId)}
                 style={{
-                  padding: "8px 12px", cursor: "pointer", fontSize: 13,
-                  background: active ? "#e0f7fa" : "#fff",
-                  color: active ? "#006064" : "var(--ink)",
-                  fontWeight: active ? 700 : 400,
-                  borderBottom: "1px solid #f0f4f8",
-                  display: "flex", alignItems: "center", gap: 8,
+                  cursor: "pointer",
+                  borderRadius: 10,
+                  border: active ? `3px solid ${col.bg}` : "3px solid transparent",
+                  background: active ? col.bg : "#f8fafc",
+                  padding: "12px 14px",
+                  display: "flex", alignItems: "flex-start", gap: 10,
+                  transition: "all 0.15s",
+                  boxShadow: active ? `0 4px 12px ${col.bg}44` : "none",
+                  outline: active ? `2px solid ${col.bg}` : "2px solid #e2e8f0",
                 }}
               >
-                <span style={{
-                  width: 16, height: 16, borderRadius: 4, border: "1.5px solid",
-                  borderColor: active ? "#006064" : "#ccc",
-                  background: active ? "#006064" : "#fff",
-                  display: "inline-flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 10, color: "#fff", flexShrink: 0,
-                }}>{active ? "✓" : ""}</span>
-                {sdg}
+                <div style={{
+                  minWidth: 34, height: 34, borderRadius: 8,
+                  background: active ? "rgba(255,255,255,0.25)" : col.bg,
+                  color: active ? col.text : col.text,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontWeight: 900, fontSize: 13, flexShrink: 0,
+                }}>{sdgId}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{
+                    fontSize: 12, fontWeight: 700, lineHeight: 1.35,
+                    color: active ? col.text : "#1e293b",
+                  }}>{label}</div>
+                  {active && (
+                    <div style={{ marginTop: 4, fontSize: 10, color: active ? col.text : "#64748b", opacity: 0.85 }}>
+                      ✓ Selected
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: "14px 24px", borderTop: "1px solid #e2e8f0",
+          display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
+        }}>
+          <div style={{ fontSize: 13, color: "#64748b" }}>
+            {local.length === 0
+              ? "No SDGs selected"
+              : <span style={{ fontWeight: 600, color: "#1e293b" }}>{local.join(", ")}</span>
+            }
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              onClick={onClose}
+              style={{ fontSize: 13, padding: "8px 18px", background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", borderRadius: 7 }}
+            >Cancel</button>
+            <button
+              onClick={() => { onChange(local); onClose(); }}
+              style={{ fontSize: 13, padding: "8px 18px", background: "#2a9d8f", color: "#fff", borderRadius: 7 }}
+            >Apply {local.length > 0 ? `(${local.length})` : ""}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Trigger button shown in the table cell
+function SdgDropdown({ selected = [], onChange }) {
+  const [open, setOpen] = useState(false);
+
+  const remove = (e, sdgId) => {
+    e.stopPropagation();
+    onChange(selected.filter((s) => s !== sdgId));
+  };
+
+  return (
+    <div style={{ width: "100%" }}>
+      <div
+        onClick={() => setOpen(true)}
+        style={{
+          border: "1px solid var(--line)", borderRadius: 6, padding: "6px 10px",
+          background: "#fff", cursor: "pointer", fontSize: 12, minHeight: 36,
+          display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center",
+        }}
+      >
+        {selected.length === 0 && (
+          <span style={{ color: "#94a3b8", fontSize: 12 }}>Click to select SDGs…</span>
+        )}
+        {selected.map((sdgId) => {
+          const idx = SDG_LIST.findIndex((s) => s.startsWith(sdgId));
+          const col = SDG_COLORS[idx] || { bg: "#64748b", text: "#fff" };
+          return (
+            <span key={sdgId} style={{
+              background: col.bg, color: col.text,
+              borderRadius: 10, padding: "1px 7px",
+              fontSize: 11, fontWeight: 700,
+              display: "inline-flex", alignItems: "center", gap: 4,
+            }}>
+              {sdgId}
+              <span
+                onClick={(e) => remove(e, sdgId)}
+                style={{ cursor: "pointer", fontSize: 12, fontWeight: 900, opacity: 0.8 }}
+              >×</span>
+            </span>
+          );
+        })}
+        <span style={{ marginLeft: "auto", color: "var(--muted)", fontSize: 11, flexShrink: 0 }}>✏</span>
+      </div>
+      {open && (
+        <SdgPicker
+          selected={selected}
+          onChange={onChange}
+          onClose={() => setOpen(false)}
+        />
       )}
     </div>
   );

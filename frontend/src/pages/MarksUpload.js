@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Upload, Trash2, CheckCircle, FileSpreadsheet } from "lucide-react";
+import * as XLSX from "xlsx";
 import axios from "axios";
 import { useApp } from "../AppContext";
 import { API_BASE, SLOT_TO_POLICY } from "../constants";
@@ -166,6 +167,62 @@ function mergeAll(slots, slotData, weightages, courseData) {
   });
 
   return { allAssessments, mergedStudents, mergedCoSummary, cos, mapping };
+}
+
+function downloadTemplate(slot, cos) {
+  const coIds = cos.map((c) => c.id);
+
+  // 2 sample questions per CO
+  const sampleQuestions = coIds.flatMap((coId, ci) =>
+    Array.from({ length: 2 }, (_, qi) => ({
+      label: `Q${ci * 2 + qi + 1}`,
+      co: coId,
+      maxMarks: 10,
+    }))
+  );
+
+  const qCols = sampleQuestions.length;
+
+  /*
+   * Parser expects (within the first 20 rows):
+   *   Row A  — CO row      : col1-3 empty, col4+ = CO ids (e.g. CO1)
+   *   Row A+1 — Label row  : col1-3 empty, col4+ = question labels (e.g. Q1)
+   *   Row A+2 — MaxMarks   : col1-3 empty, col4+ = numeric max marks
+   *   Row A+3+ — Data rows : col1 = numeric serial, col2 = reg no, col3 = name, col4+ = marks
+   *
+   * Scoring in the parser requires co_count>=1, max_count>=1, data_count>=2.   *
+   */
+  const empty3 = ["", "", ""];
+
+  const coRow      = [...empty3, ...sampleQuestions.map((q) => q.co)];
+  const labelRow   = [...empty3, ...sampleQuestions.map((q) => q.label)];
+  const maxRow     = [...empty3, ...sampleQuestions.map((q) => q.maxMarks)];
+  const headerNote = ["SlNo", "RegisterNumber", "StudentName", ...Array(qCols).fill("(fill marks)")];
+
+  // 5 blank student rows with numeric serial in col1
+  const dataRows = Array.from({ length: 5 }, (_, i) => [
+    i + 1,
+    `ROLLNO${String(i + 1).padStart(3, "0")}`,
+    `Student ${i + 1}`,
+    ...Array(qCols).fill(""),
+  ]);
+
+  const ws = XLSX.utils.aoa_to_sheet([
+    coRow,
+    labelRow,
+    maxRow,
+    headerNote,
+    ...dataRows,
+  ]);
+
+  ws["!cols"] = [
+    { wch: 6 }, { wch: 18 }, { wch: 26 },
+    ...sampleQuestions.map(() => ({ wch: 10 })),
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, slot.short);
+  XLSX.writeFile(wb, `Template_${slot.short}_Marks.xlsx`);
 }
 
 export default function MarksEntry() {

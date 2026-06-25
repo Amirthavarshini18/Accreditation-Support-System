@@ -68,6 +68,11 @@ def faculty_login(request):
             {"success": False, "message": "Invalid JSON payload"},
             status=400,
         )
+    except Exception as e:
+        return JsonResponse(
+            {"success": False, "message": str(e)},
+            status=500,
+        )
 
 
 def sample_data(request):

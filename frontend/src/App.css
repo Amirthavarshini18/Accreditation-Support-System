@@ -1947,3 +1947,40 @@ input:focus, select:focus {
   text-align: center;
   line-height: 1.5;
 }
+
+.modal-templates-section {
+  display: grid;
+  gap: 8px;
+}
+
+.modal-templates-label {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.modal-templates-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.modal-template-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1.5px solid;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: filter 0.15s, transform 0.15s;
+}
+
+.modal-template-btn:hover {
+  transform: translateY(-2px);
+  filter: brightness(0.96);
+}

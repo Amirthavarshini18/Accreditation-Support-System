@@ -3,9 +3,10 @@ import { useNavigate } from "react-router-dom";
 import {
   BookOpen, ClipboardList, FileSpreadsheet, BarChart3, Download,
   User, GitBranch, CheckCircle, Circle, ArrowRight, TrendingUp,
-  Users, Award, Target, Activity, ChevronRight,
+  Users, Award, Target, Activity, ChevronRight, X, Info,
 } from "lucide-react";
 import { useApp } from "../AppContext";
+import { downloadIATemplate, downloadESETemplate, downloadCATemplate } from "../utils/templateGenerator";
 
 const STEPS = [
   {
@@ -111,6 +112,12 @@ export default function Dashboard() {
   const { faculty, courseData, report, resetData } = useApp();
   const navigate = useNavigate();
   const [showReset, setShowReset] = useState(false);
+  const [showGuide, setShowGuide] = useState(() => !localStorage.getItem("guideShown"));
+
+  function closeGuide() {
+    localStorage.setItem("guideShown", "1");
+    setShowGuide(false);
+  }
 
   const completedSteps = STEPS.filter((s) => s.check(courseData, report)).length;
   const progressPct = Math.round((completedSteps / STEPS.length) * 100);
@@ -128,7 +135,103 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard-root">
-      {/* ── Hero Header ── */}
+
+      {/* ── Instruction / Welcome Modal ── */}
+      {showGuide && (
+        <div className="modal-overlay" onClick={closeGuide}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+
+            {/* Header */}
+            <div className="modal-header">
+              <div className="modal-badge">NBA</div>
+              <p className="modal-subtitle">Getting Started</p>
+              <h2>Welcome to the CO-PO Attainment System</h2>
+              <p className="modal-intro">
+                Follow the steps below to compute CO and PO attainment for your course.
+                Before you begin, download the required Excel templates and fill in your student marks.
+              </p>
+            </div>
+
+            {/* Workflow steps */}
+            <ol className="modal-list">
+              <li><strong>Course Details</strong> — Enter course name, code, programme, faculty and define COs with target grades.</li>
+              <li><strong>Attainment Type</strong> — Choose direct/indirect modes and set IA / ESE / CA weightages (must sum to 100%).</li>
+              <li><strong>Questions &amp; CO-PO</strong> — Map assessment questions to COs and fill the CO-PO correlation matrix.</li>
+              <li><strong>Marks Entry</strong> — Upload IA, ESE and CA Excel sheets. Multi-CO questions are split automatically.</li>
+              <li><strong>Report</strong> — Calculate CO attainment scores and PO attainment.</li>
+              <li><strong>Export</strong> — Download the full professional PDF report with NITC branding.</li>
+            </ol>
+
+            {/* Template download section */}
+            <div style={{
+              background: "#f0fdf4",
+              border: "1.5px solid #a7f3d0",
+              borderRadius: 10,
+              padding: "18px 20px",
+              display: "grid",
+              gap: 14,
+            }}>
+              <div>
+                <p style={{ margin: 0, fontWeight: 800, fontSize: 14, color: "#065f46" }}>
+                  Download Sample Excel Templates
+                </p>
+                <p style={{ margin: "4px 0 0", fontSize: 13, color: "#047857", lineHeight: 1.6 }}>
+                  Before starting, download the required Excel templates and fill marks only in the given format.
+                  Do <strong>not</strong> rename the CO header rows.
+                </p>
+              </div>
+
+              <div style={{ display: "grid", gap: 8 }}>
+                {[
+                  { label: "Download IA Template",  fn: downloadIATemplate,  desc: "Internal Assessment",       color: "#2563eb", bg: "#eff6ff", border: "#bfdbfe" },
+                  { label: "Download ESE Template", fn: downloadESETemplate, desc: "End Semester Examination",  color: "#7c3aed", bg: "#f5f3ff", border: "#ddd6fe" },
+                  { label: "Download CA Template",  fn: downloadCATemplate,  desc: "Continuous Assessment",     color: "#059669", bg: "#ecfdf5", border: "#a7f3d0" },
+                ].map(({ label, fn, desc, color, bg, border }) => (
+                  <div key={label} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    background: bg, border: `1.5px solid ${border}`,
+                    borderRadius: 8, padding: "10px 14px",
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b" }}>{desc}</div>
+                      <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Includes Instructions sheet</div>
+                    </div>
+                    <button
+                      onClick={fn}
+                      style={{
+                        background: color, color: "#fff",
+                        fontSize: 12, fontWeight: 700,
+                        padding: "7px 14px", borderRadius: 6,
+                        display: "flex", alignItems: "center", gap: 6,
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Download size={13} />
+                      {label}
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <p style={{ margin: 0, fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>
+                Each template has an <strong>Instructions</strong> sheet explaining the exact format.
+                Fill marks only in the data rows. Do not rename or reorder the CO or Question header rows.
+              </p>
+            </div>
+
+            {/* Close button */}
+            <button className="modal-btn" onClick={closeGuide}>
+              Got it — Start with Course Details →
+            </button>
+
+            <p className="modal-footer-note">
+              This guide won't show again. Click the
+              <strong> ⓘ Guide</strong> button on the dashboard to reopen it anytime.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="dash-hero">
         <div className="dash-hero-left">
           <h1 className="dash-title">
@@ -144,19 +247,31 @@ export default function Dashboard() {
               )}
             </div>
           )}
-          {nextStep && (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            {nextStep && (
+              <button
+                className="dash-next-btn"
+                onClick={() => navigate(nextStep.to)}
+                style={{ background: nextStep.color }}
+              >
+                Continue: Step {nextStep.step} — {nextStep.title}
+                <ArrowRight size={15} />
+              </button>
+            )}
             <button
-              className="dash-next-btn"
-              onClick={() => navigate(nextStep.to)}
-              style={{ background: nextStep.color }}
+              onClick={() => setShowGuide(true)}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                background: "rgba(255,255,255,0.15)",
+                border: "1px solid rgba(255,255,255,0.3)",
+                color: "#fff", fontSize: 13, fontWeight: 700,
+                padding: "9px 16px", borderRadius: 8,
+              }}
             >
-              Continue: Step {nextStep.step} — {nextStep.title}
-              <ArrowRight size={15} />
+              <Info size={14} /> Guide &amp; Templates
             </button>
-          )}
+          </div>
         </div>
-
-
       </div>
 
       {/* ── Live Metrics ── */}

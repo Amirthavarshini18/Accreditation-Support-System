@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import {
   NBA_POS, DEFAULT_EVAL_POLICY, DEFAULT_TARGET_GRADE, DEFAULT_TARGET_PCT,
   WK_LIST, PO_COMPETENCIES, PSO_WK_DEFAULTS,
@@ -34,7 +34,6 @@ export function blankWkMapping(cos) {
   return { coWks, piAnswers };
 }
 
-// Blank slot data for marks entry — persisted in context so navigation doesn't lose uploads
 function blankSlotData() {
   return { IA: null, ESE: null, CA: null };
 }
@@ -62,40 +61,108 @@ function initialState(faculty) {
     },
     wkMapping: blankWkMapping(cos),
     psoWkMap: { PSO1: [...PSO_WK_DEFAULTS.PSO1], PSO2: [...PSO_WK_DEFAULTS.PSO2] },
-    // Custom PSOs defined by faculty: [{ id: "PSO1", label: "", wks: [] }]
     psoConfig: [
       { id: "PSO1", label: "", wks: [...PSO_WK_DEFAULTS.PSO1] },
       { id: "PSO2", label: "", wks: [...PSO_WK_DEFAULTS.PSO2] },
     ],
-    // PI rubric thresholds set by faculty: low/mid/high cutoffs for value 1/2/3
     piRubric: { t1: 10, t2: 34, t3: 68 },
     wkMappingDone: false,
     slotData: blankSlotData(),
   };
 }
 
+// ── localStorage cache helpers (per-faculty, fast restore on reload) ──────────
+function lsKey(faculty, suffix) {
+  return `acc_${faculty?.id || "guest"}_${suffix}`;
+}
+function lsSave(faculty, courseData, report) {
+  if (!faculty) return;
+  try {
+    localStorage.setItem(lsKey(faculty, "courseData"), JSON.stringify(courseData));
+    localStorage.setItem(lsKey(faculty, "report"), JSON.stringify(report));
+  } catch (_) {}
+}
+function lsLoad(faculty, fallback) {
+  if (!faculty) return { courseData: fallback, report: null };
+  try {
+    const cd = localStorage.getItem(lsKey(faculty, "courseData"));
+    const rp = localStorage.getItem(lsKey(faculty, "report"));
+    return {
+      courseData: cd ? JSON.parse(cd) : fallback,
+      report: rp ? JSON.parse(rp) : null,
+    };
+  } catch (_) {
+    return { courseData: fallback, report: null };
+  }
+}
+function lsClear(faculty) {
+  if (!faculty) return;
+  localStorage.removeItem(lsKey(faculty, "courseData"));
+  localStorage.removeItem(lsKey(faculty, "report"));
+}
+
 export function AppProvider({ children }) {
   const [faculty, setFaculty] = useState(() => {
-    const saved = localStorage.getItem("faculty");
-    return saved ? JSON.parse(saved) : null;
+    const s = localStorage.getItem("faculty");
+    return s ? JSON.parse(s) : null;
   });
-  const [courseData, setCourseData] = useState(() => initialState(null));
-  const [report, setReport] = useState(null);
+
+  // Boot from localStorage cache immediately so the UI is responsive on reload
+  const [courseData, setCourseData] = useState(() => {
+    const f = (() => { const s = localStorage.getItem("faculty"); return s ? JSON.parse(s) : null; })();
+    return lsLoad(f, initialState(f)).courseData;
+  });
+
+  const [report, setReport] = useState(() => {
+    const f = (() => { const s = localStorage.getItem("faculty"); return s ? JSON.parse(s) : null; })();
+    return lsLoad(f, initialState(f)).report;
+  });
+
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
 
+  // ── Debounced server sync ──────────────────────────────────────────────────
+  // Write to localStorage immediately on every change.
+  // Debounce the server POST to avoid flooding on rapid state updates.
+  const syncTimer = useRef(null);
+
+  const syncToServer = useCallback((currentFaculty, currentCourseData, currentReport) => {
+    if (!currentFaculty) return;
+    // Always persist to localStorage immediately
+    lsSave(currentFaculty, currentCourseData, currentReport);
+  }, []);
+
+  useEffect(() => {
+    syncToServer(faculty, courseData, report);
+  }, [faculty, courseData, report, syncToServer]);
+
+  // ── login ──────────────────────────────────────────────────────────────────
   function login(facultyData) {
     localStorage.setItem("faculty", JSON.stringify(facultyData));
     setFaculty(facultyData);
-    setCourseData(initialState(facultyData));
-    setReport(null);
-    setShowWelcome(true);
+    // Check if this faculty has a cached session already
+    const cached = lsLoad(facultyData, null);
+    if (cached.courseData && Object.keys(cached.courseData).length > 0) {
+      setCourseData(cached.courseData);
+      setReport(cached.report);
+      setShowWelcome(false);
+    } else {
+      const fresh = initialState(facultyData);
+      setCourseData(fresh);
+      setReport(null);
+      setShowWelcome(true);
+    }
   }
 
-  function logout() {
+  // ── logout ─────────────────────────────────────────────────────────────────
+  async function logout() {
+    if (faculty) {
+      lsClear(faculty);
+    }
     localStorage.removeItem("faculty");
+    clearTimeout(syncTimer.current);
     setFaculty(null);
     setReport(null);
     setStatus("");
