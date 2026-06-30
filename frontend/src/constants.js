@@ -1,5 +1,8 @@
 export const API_BASE = "http://127.0.0.1:8000/api";
 
+// Allowed institutional email domain — change here to support other institutions
+export const ALLOWED_DOMAIN = "nitc.ac.in";
+
 export const NBA_POS = [
   { id: "PO1",  label: "Engineering Knowledge" },
   { id: "PO2",  label: "Problem Analysis" },

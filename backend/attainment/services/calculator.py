@@ -204,8 +204,15 @@ def calculate_course_attainment(payload):
 
     for co in cos:
         co_id = co.get("id")
+        # Skip COs with no description (blank/unentered COs)
+        if not (co.get("description") or "").strip():
+            continue
         target = safe_float(co.get("target"), 60)
         max_marks = co_max.get(co_id, 0)
+
+        # Skip COs that have no questions mapped to them
+        if max_marks == 0:
+            continue
 
         attained_count = 0
         student_breakup = []

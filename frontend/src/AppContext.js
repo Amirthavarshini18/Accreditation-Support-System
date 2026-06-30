@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
+import axios from "axios";
 import {
   NBA_POS, DEFAULT_EVAL_POLICY, DEFAULT_TARGET_GRADE, DEFAULT_TARGET_PCT,
-  WK_LIST, PO_COMPETENCIES, PSO_WK_DEFAULTS,
+  WK_LIST, PO_COMPETENCIES, PSO_WK_DEFAULTS, API_BASE,
 } from "./constants";
 
 const AppContext = createContext(null);
@@ -71,7 +72,87 @@ function initialState(faculty) {
   };
 }
 
-// ── localStorage cache helpers (per-faculty, fast restore on reload) ──────────
+// ── Token helpers ─────────────────────────────────────────────────────────────
+const ACC_ACCESS_KEY  = "acc_access_token";
+const ACC_REFRESH_KEY = "acc_refresh_token";
+const ACC_STORAGE_KEY = "acc_remember_me"; // "local" | "session"
+
+function _getStorage() {
+  return localStorage.getItem(ACC_STORAGE_KEY) === "session" ? sessionStorage : localStorage;
+}
+function saveTokens(access, refresh, rememberMe) {
+  try {
+    if (rememberMe !== undefined) {
+      localStorage.setItem(ACC_STORAGE_KEY, rememberMe ? "local" : "session");
+    }
+    const store = _getStorage();
+    if (access)  store.setItem(ACC_ACCESS_KEY,  access);
+    if (refresh) store.setItem(ACC_REFRESH_KEY, refresh);
+  } catch (_) {}
+}
+function clearTokens() {
+  try {
+    localStorage.removeItem(ACC_ACCESS_KEY);
+    localStorage.removeItem(ACC_REFRESH_KEY);
+    sessionStorage.removeItem(ACC_ACCESS_KEY);
+    sessionStorage.removeItem(ACC_REFRESH_KEY);
+    localStorage.removeItem(ACC_STORAGE_KEY);
+  } catch (_) {}
+}
+function getAccessToken()  {
+  return localStorage.getItem(ACC_ACCESS_KEY) || sessionStorage.getItem(ACC_ACCESS_KEY) || null;
+}
+function getRefreshToken() {
+  return localStorage.getItem(ACC_REFRESH_KEY) || sessionStorage.getItem(ACC_REFRESH_KEY) || null;
+}
+
+// Attach Bearer token to every axios request
+axios.interceptors.request.use((config) => {
+  const token = getAccessToken();
+  if (token) config.headers["Authorization"] = `Bearer ${token}`;
+  return config;
+});
+
+// Auto-refresh on 401: try once with refresh token, else clear session
+let _refreshing = false;
+let _refreshQueue = [];
+axios.interceptors.response.use(
+  (res) => res,
+  async (err) => {
+    const original = err.config;
+    if (err.response?.status === 401 && !original._retry && !original.url?.includes('/auth/')) {
+      original._retry = true;
+      if (_refreshing) {
+        return new Promise((resolve, reject) => {
+          _refreshQueue.push({ resolve, reject });
+        }).then(() => axios(original));
+      }
+      _refreshing = true;
+      try {
+        const rt = getRefreshToken();
+        if (!rt) throw new Error('No refresh token');
+        const { data } = await axios.post(`${API_BASE}/auth/refresh/`, { refreshToken: rt }, { _retry: true });
+        if (data.accessToken) {
+          saveTokens(data.accessToken, null);
+          _refreshQueue.forEach(({ resolve }) => resolve());
+          _refreshQueue = [];
+          return axios(original);
+        }
+      } catch (_) {
+        _refreshQueue.forEach(({ reject }) => reject());
+        _refreshQueue = [];
+        clearTokens();
+        localStorage.removeItem('faculty');
+        window.location.href = '/login';
+      } finally {
+        _refreshing = false;
+      }
+    }
+    return Promise.reject(err);
+  }
+);
+
+
 function lsKey(faculty, suffix) {
   return `acc_${faculty?.id || "guest"}_${suffix}`;
 }
@@ -123,6 +204,28 @@ export function AppProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
 
+  const [authConfig, setAuthConfig] = useState({
+    allowedDomain: "nitc.ac.in",
+    institutionName: "NIT Calicut"
+  });
+
+  useEffect(() => {
+    async function fetchConfig() {
+      try {
+        const res = await axios.get(`${API_BASE}/auth/config/`);
+        if (res.data && res.data.success) {
+          setAuthConfig({
+            allowedDomain: res.data.allowedDomain,
+            institutionName: res.data.institutionName
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to load auth config from backend, using fallbacks:", err);
+      }
+    }
+    fetchConfig();
+  }, []);
+
   // ── Debounced server sync ──────────────────────────────────────────────────
   // Write to localStorage immediately on every change.
   // Debounce the server POST to avoid flooding on rapid state updates.
@@ -139,10 +242,10 @@ export function AppProvider({ children }) {
   }, [faculty, courseData, report, syncToServer]);
 
   // ── login ──────────────────────────────────────────────────────────────────
-  function login(facultyData) {
+  function login(facultyData, accessToken, refreshToken, rememberMe = true) {
     localStorage.setItem("faculty", JSON.stringify(facultyData));
+    saveTokens(accessToken, refreshToken, rememberMe);
     setFaculty(facultyData);
-    // Check if this faculty has a cached session already
     const cached = lsLoad(facultyData, null);
     if (cached.courseData && Object.keys(cached.courseData).length > 0) {
       setCourseData(cached.courseData);
@@ -158,10 +261,13 @@ export function AppProvider({ children }) {
 
   // ── logout ─────────────────────────────────────────────────────────────────
   async function logout() {
-    if (faculty) {
-      lsClear(faculty);
-    }
+    try {
+      const rt = getRefreshToken();
+      await axios.post(`${API_BASE}/auth/logout/`, { refreshToken: rt });
+    } catch (_) {}
+    if (faculty) lsClear(faculty);
     localStorage.removeItem("faculty");
+    clearTokens();
     clearTimeout(syncTimer.current);
     setFaculty(null);
     setReport(null);
@@ -187,6 +293,7 @@ export function AppProvider({ children }) {
       loading, setLoading,
       resetData,
       showWelcome, setShowWelcome,
+      authConfig,
     }}>
       {children}
     </AppContext.Provider>

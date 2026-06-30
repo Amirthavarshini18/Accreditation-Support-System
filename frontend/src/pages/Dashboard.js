@@ -114,6 +114,12 @@ export default function Dashboard() {
   const [showReset, setShowReset] = useState(false);
   const [showGuide, setShowGuide] = useState(() => !localStorage.getItem("guideShown"));
 
+  const deptDisplay = faculty?.department
+    ? (faculty.department.toLowerCase().startsWith("department")
+       ? faculty.department
+       : `Department of ${faculty.department}`)
+    : "";
+
   function closeGuide() {
     localStorage.setItem("guideShown", "1");
     setShowGuide(false);
@@ -235,9 +241,23 @@ export default function Dashboard() {
       <div className="dash-hero">
         <div className="dash-hero-left">
           <h1 className="dash-title">
-            Welcome back,<br />
+            Welcome,<br />
             <span className="dash-name">{faculty?.name || "Faculty"}</span>
           </h1>
+          {(deptDisplay || faculty?.designation) && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 12 }}>
+              {deptDisplay && (
+                <span style={{ fontSize: 14, color: "rgba(255,255,255,0.82)", fontWeight: 500 }}>
+                  {deptDisplay}
+                </span>
+              )}
+              {faculty?.designation && (
+                <span style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", fontStyle: "italic" }}>
+                  {faculty.designation}
+                </span>
+              )}
+            </div>
+          )}
           {courseData.course?.courseName && (
             <div className="dash-course-pill">
               <BookOpen size={13} />

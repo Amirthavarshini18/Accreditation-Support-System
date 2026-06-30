@@ -120,7 +120,9 @@ export default function Layout({ children }) {
           {!collapsed && (
             <>
               <strong>{faculty?.name || "Faculty"}</strong>
-              <span>{faculty?.email}</span>
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.6)" }}>{faculty?.email}</span>
+              {faculty?.department && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.45)" }}>{faculty.department}</span>}
+              {faculty?.designation && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.45)" }}>{faculty.designation}</span>}
             </>
           )}
           <button

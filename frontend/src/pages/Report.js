@@ -156,6 +156,11 @@ function ReportSection({ title, eyebrow, children, className = "" }) {
   );
 }
 
+// Only include COs that have been actually defined (have a description)
+function getActiveCOs(courseData) {
+  return (courseData.cos || []).filter((co) => co.description && co.description.trim() !== "");
+}
+
 export default function Report() {
   const { courseData, report, setReport, setError, setStatus } = useApp();
   const navigate = useNavigate();
@@ -179,9 +184,10 @@ export default function Report() {
   const derived = useMemo(() => {
     if (!report) return null;
     const coResults = report.coResults || [];
+    const activeCOs = getActiveCOs(courseData);
     const activePOs = PO_IDS.filter((po) => (courseData.pos || []).includes(po));
     const poRows = activePOs.map((po) => {
-      const mappedCOs = (courseData.cos || [])
+      const mappedCOs = activeCOs
         .filter((co) => num(report.mapping?.[co.id]?.[po]) > 0)
         .map((co) => co.id);
       const score = report.poScores?.[po] ?? 0;
@@ -196,7 +202,11 @@ export default function Report() {
     });
 
     const assessmentRows = getAssessmentAnalytics(report);
-    const coChart = coResults.map((item) => ({
+    // Only chart COs that are active (have description) and have actual marks
+    const validCoResults = coResults.filter(
+      (item) => activeCOs.some((co) => co.id === item.co) && num(item.maxMarks) > 0
+    );
+    const coChart = validCoResults.map((item) => ({
       co: item.co,
       Target: num(item.target),
       Achieved: num(item.attainmentPercentage),
@@ -207,7 +217,7 @@ export default function Report() {
     }));
 
     const wkRows = WK_LIST.filter((wk) => /^WK[1-8]$/.test(wk.id)).map((wk) => {
-      const relatedCOs = (courseData.cos || []).filter((co) => courseData.wkMapping?.coWks?.[co.id]?.[wk.id]);
+      const relatedCOs = activeCOs.filter((co) => courseData.wkMapping?.coWks?.[co.id]?.[wk.id]);
       const avgScore = relatedCOs.length
         ? relatedCOs.reduce((sum, co) => {
           const result = coResults.find((item) => item.co === co.id);
@@ -223,7 +233,7 @@ export default function Report() {
 
     const sdgRows = SDG_LIST.map((sdg) => {
       const sdgId = sdg.split(":")[0];
-      const relatedCOs = (courseData.cos || []).filter((co) => (co.sdgs || []).some((value) => value.toUpperCase() === sdgId));
+      const relatedCOs = activeCOs.filter((co) => (co.sdgs || []).some((value) => value.toUpperCase() === sdgId));
       if (!relatedCOs.length) return null;
       const relatedPOs = activePOs.filter((po) => relatedCOs.some((co) => num(report.mapping?.[co.id]?.[po]) > 0));
       const avgScore = relatedCOs.reduce((sum, co) => {
@@ -238,8 +248,8 @@ export default function Report() {
       };
     }).filter(Boolean);
 
-    const achieved = coResults.filter((item) => num(item.attainmentPercentage) >= num(item.target));
-    const notAchieved = coResults.filter((item) => num(item.attainmentPercentage) < num(item.target));
+    const achieved = validCoResults.filter((item) => num(item.attainmentPercentage) >= num(item.target));
+    const notAchieved = validCoResults.filter((item) => num(item.attainmentPercentage) < num(item.target));
     const remarks = [
       achieved.length
         ? `${achieved.map((item) => item.co).join(", ")} achieved the expected target level.`
@@ -251,6 +261,7 @@ export default function Report() {
     ];
 
     return {
+      activeCOs,
       activePOs,
       poRows,
       assessmentRows,
@@ -348,7 +359,9 @@ export default function Report() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(report.coResults || []).map((item) => {
+                  {(report.coResults || []).filter((item) =>
+                    derived.activeCOs.some((co) => co.id === item.co) && item.maxMarks > 0
+                  ).map((item) => {
                     const achieved = num(item.attainmentPercentage) >= num(item.target);
                     return (
                       <tr key={item.co}>
@@ -408,12 +421,11 @@ export default function Report() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(courseData.cos || []).map((co) => (
+                  {derived.activeCOs.map((co) => (
                     <tr key={co.id}>
                       <th>{co.id}</th>
                       {derived.activePOs.map((po) => {
                         const raw = report.mapping?.[co.id]?.[po];
-                        // null = not connected or below threshold; 0 legacy = also not mapped
                         const isBlank = raw === null || raw === undefined || raw === 0;
                         const value = isBlank ? null : num(raw);
                         return (
@@ -494,7 +506,7 @@ export default function Report() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(courseData.cos || []).map((co) => (
+                  {derived.activeCOs.map((co) => (
                     <tr key={co.id}>
                       <td><strong>{co.id}</strong></td>
                       <td>{co.description || <span style={{ color: "var(--muted)" }}>—</span>}</td>
