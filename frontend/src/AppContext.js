@@ -206,7 +206,8 @@ export function AppProvider({ children }) {
 
   const [authConfig, setAuthConfig] = useState({
     allowedDomain: "nitc.ac.in",
-    institutionName: "NIT Calicut"
+    institutionName: "NIT Calicut",
+    googleClientId: ""
   });
 
   useEffect(() => {
@@ -216,7 +217,8 @@ export function AppProvider({ children }) {
         if (res.data && res.data.success) {
           setAuthConfig({
             allowedDomain: res.data.allowedDomain,
-            institutionName: res.data.institutionName
+            institutionName: res.data.institutionName,
+            googleClientId: res.data.googleClientId
           });
         }
       } catch (err) {

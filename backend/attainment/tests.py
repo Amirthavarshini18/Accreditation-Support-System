@@ -1,4 +1,5 @@
 from django.test import TestCase
+from unittest.mock import patch
 
 from .services.calculator import DEFAULT_COURSE_DATA, calculate_course_attainment
 
@@ -79,4 +80,92 @@ class AuthenticationTests(TestCase):
         data = response.json()
         self.assertEqual(data['allowedDomain'], 'nitk.edu.in')
         self.assertEqual(data['institutionName'], 'NIT Surathkal')
+
+    @patch('google.oauth2.id_token.verify_oauth2_token')
+    def test_google_auth_existing_user_login(self, mock_verify):
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        User.objects.create_user(
+            username='existing_fac',
+            email='existing.faculty@nitc.ac.in',
+            password='somepassword',
+            name='Existing Faculty',
+        )
+        mock_verify.return_value = {
+            'email': 'existing.faculty@nitc.ac.in',
+            'name': 'Existing Faculty',
+            'email_verified': True,
+        }
+        response = self.client.post('/api/auth/google/', {
+            'credential': 'fake_valid_token'
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn('access', data)
+        self.assertEqual(data['user']['email'], 'existing.faculty@nitc.ac.in')
+
+    @patch('google.oauth2.id_token.verify_oauth2_token')
+    def test_google_auth_not_registered_yet(self, mock_verify):
+        mock_verify.return_value = {
+            'email': 'new.faculty@nitc.ac.in',
+            'name': 'New Faculty Member',
+            'email_verified': True,
+        }
+        response = self.client.post('/api/auth/google/', {
+            'credential': 'fake_valid_token'
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 404)
+        data = response.json()
+        self.assertFalse(data['success'])
+        self.assertFalse(data['is_registered'])
+        self.assertEqual(data['email'], 'new.faculty@nitc.ac.in')
+
+    @patch('google.oauth2.id_token.verify_oauth2_token')
+    def test_google_auth_registration_success(self, mock_verify):
+        mock_verify.return_value = {
+            'email': 'new.faculty@nitc.ac.in',
+            'name': 'New Faculty Member',
+            'email_verified': True,
+        }
+        response = self.client.post('/api/auth/google/', {
+            'credential': 'fake_valid_token',
+            'name': 'New Faculty Member Modified',
+            'department': 'Computer Science',
+            'designation': 'Assistant Professor',
+            'employee_id': 'EMP123'
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn('access', data)
+        self.assertEqual(data['user']['email'], 'new.faculty@nitc.ac.in')
+        self.assertEqual(data['user']['name'], 'New Faculty Member Modified')
+        self.assertEqual(data['user']['department'], 'Computer Science')
+
+    @patch('google.oauth2.id_token.verify_oauth2_token')
+    def test_google_auth_invalid_domain(self, mock_verify):
+        mock_verify.return_value = {
+            'email': 'faculty@gmail.com',
+            'name': 'External User',
+            'email_verified': True,
+        }
+        response = self.client.post('/api/auth/google/', {
+            'credential': 'fake_gmail_token'
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertEqual(data['message'], 'Only @nitc.ac.in Google accounts are allowed.')
+
+    @patch('google.oauth2.id_token.verify_oauth2_token')
+    def test_google_auth_not_verified(self, mock_verify):
+        mock_verify.return_value = {
+            'email': 'faculty@nitc.ac.in',
+            'name': 'Unverified User',
+            'email_verified': False,
+        }
+        response = self.client.post('/api/auth/google/', {
+            'credential': 'fake_unverified_token'
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertEqual(data['message'], 'Google email address is not verified.')
 

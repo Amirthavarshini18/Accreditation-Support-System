@@ -1,12 +1,12 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from .models import (
-    facultyuser, Faculty, Course, PO, CO, COPOMapping,
+    Facultyuser, Faculty, Course, PO, CO, COPOMapping,
     Assessment, Question, Student, StudentMark, COAttainment, ExcelUpload,
 )
 
 
-@admin.register(facultyuser)
+@admin.register(Facultyuser)
 class FacultyUserAdmin(UserAdmin):
     """Admin panel for FacultyUser — uses Django's UserAdmin for safe password handling."""
     list_display  = ('email', 'get_full_name', 'department', 'designation', 'is_active', 'is_staff', 'date_joined')

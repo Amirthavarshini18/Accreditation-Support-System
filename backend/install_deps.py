@@ -9,6 +9,8 @@ pip_args = [
     sys.executable, "-m", "pip", "install",
     "djangorestframework-simplejwt",
     "pyjwt",
+    "google-auth",
+    "requests",
 ]
 print(f"Installing into: {sys.executable}")
 result = subprocess.run(pip_args, capture_output=False)

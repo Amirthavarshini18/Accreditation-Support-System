@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { Download } from "lucide-react";
 import { useApp } from "../AppContext";
 import {
   WK_LIST, NBA_POS, PO_COMPETENCIES,
@@ -452,6 +455,400 @@ export default function WKMapping() {
     navigate("/marks");
   }
 
+  function downloadPreliminaryReport() {
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const M = 16;
+    const borderW = pageW - M * 2;
+    const innerX = M + 4;
+    const innerW = borderW - 8;
+    const bottomLimit = pageH - M - 12;
+    const HDR_COLOR = [15, 56, 96];
+    const SECTION_COLOR = [30, 100, 160];
+    const BORDER_W = 0.55;
+
+    function drawBorder() {
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(BORDER_W);
+      doc.rect(M, M, borderW, pageH - M * 2);
+    }
+
+    function addPage() {
+      doc.addPage();
+      drawBorder();
+      return M + 8;
+    }
+
+    function sectionTitle(title, y) {
+      if (y + 12 > bottomLimit) y = addPage();
+      doc.setFillColor(...SECTION_COLOR);
+      doc.rect(innerX, y, innerW, 7, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(255, 255, 255);
+      doc.text(title, innerX + 3, y + 5);
+      doc.setTextColor(0, 0, 0);
+      return y + 9;
+    }
+
+    drawBorder();
+
+    // Top accent bar
+    doc.setFillColor(...HDR_COLOR);
+    doc.rect(innerX, M + 4, innerW, 4, "F");
+
+    let y = M + 14;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("PRELIMINARY ACCREDITATION REPORT", pageW / 2, y, { align: "center" });
+    y += 6;
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text("Course Configuration & Mapping Summary (Steps 1-4)", pageW / 2, y, { align: "center" });
+    y += 12;
+
+    // 1. Course Information Section
+    y = sectionTitle("1. Course Information", y);
+    
+    const course = courseData.course || {};
+    const infoRows = [
+      ["Course Name", course.courseName || "-", "Course Code", course.courseCode || "-"],
+      ["Academic Year", course.academicYear || "-", "Semester", course.semester || "-"],
+      ["Programme", course.programme || "-", "Specialization", course.specialization || "-"],
+      ["Course Year", course.courseYear || "-", "Course Semester", course.courseSemester || "-"],
+      ["Credits", course.credits || "-", "Faculty Name", course.faculty || "-"]
+    ];
+
+    autoTable(doc, {
+      body: infoRows,
+      startY: y,
+      margin: { left: innerX, right: innerX },
+      theme: "plain",
+      styles: { fontSize: 8.5, cellPadding: 2, lineColor: [200, 200, 200], lineWidth: 0.15 },
+      columnStyles: {
+        0: { fontStyle: "bold", width: 30, fillColor: [240, 244, 248] },
+        1: { width: 60 },
+        2: { fontStyle: "bold", width: 30, fillColor: [240, 244, 248] },
+        3: { width: 60 }
+      },
+      didDrawPage: () => drawBorder(),
+    });
+    
+    y = doc.lastAutoTable.finalY + 8;
+
+    // 2. Course Outcomes Section
+    y = sectionTitle("2. Course Outcomes (COs)", y);
+
+    const cosData = (courseData.cos || []).map(co => [
+      co.id,
+      co.description || "-",
+      co.blooms?.join(", ") || "-",
+      `${co.targetGrade} (>= ${co.target}%)`,
+      co.sdgs?.map(s => s.split(":")[0]).join(", ") || "-"
+    ]);
+
+    autoTable(doc, {
+      head: [["CO", "Description", "Bloom's Level", "Target", "SDGs"]],
+      body: cosData,
+      startY: y,
+      margin: { left: innerX, right: innerX },
+      headStyles: { fillColor: HDR_COLOR, textColor: 255 },
+      styles: { fontSize: 7.5, cellPadding: 2, overflow: "linebreak" },
+      columnStyles: {
+        0: { fontStyle: "bold", width: 12 },
+        1: { width: 90 },
+        2: { width: 25 },
+        3: { width: 25 },
+        4: { width: 28 }
+      },
+      didDrawPage: () => drawBorder(),
+    });
+
+    y = doc.lastAutoTable.finalY + 8;
+
+    // 3. Evaluation Policy Section
+    y = sectionTitle("3. Evaluation Policy & Weightage", y);
+
+    const policy = courseData.evaluationPolicy || {};
+    const policyRows = [
+      ["Internal Assessment (IA)", `${policy.interimTest || 0}%`],
+      ["End Semester Exam (ESE)", `${policy.endExam || 0}%`],
+      ["Continuous Evaluation (CA)", `${policy.continuousEvaluation || 0}%`],
+      ["Other Components", `${policy.other || 0}%`],
+      ["Total Weightage", "100%"]
+    ];
+
+    autoTable(doc, {
+      head: [["Assessment Type", "Weightage"]],
+      body: policyRows,
+      startY: y,
+      margin: { left: innerX, right: innerX },
+      headStyles: { fillColor: HDR_COLOR, textColor: 255 },
+      styles: { fontSize: 8.5, cellPadding: 2 },
+      columnStyles: {
+        0: { width: 100 },
+        1: { width: 80, halign: "center" }
+      },
+      didDrawPage: () => drawBorder(),
+    });
+
+    y = doc.lastAutoTable.finalY + 8;
+
+    // 4. Questions & CO Mapping Section
+    y = sectionTitle("4. Assessment Questions & Mappings", y);
+
+    const questionRows = [];
+    (courseData.assessments || []).forEach(ass => {
+      (ass.questions || []).forEach(q => {
+        questionRows.push([
+          ass.name,
+          q.label || q.id,
+          q.maxMarks,
+          q.co || "-"
+        ]);
+      });
+    });
+
+    if (questionRows.length === 0) {
+      questionRows.push([
+        "No questions uploaded yet.", "-", "-", "-"
+      ]);
+    }
+
+    autoTable(doc, {
+      head: [["Assessment Slot", "Question Label", "Max Marks", "Mapped CO"]],
+      body: questionRows,
+      startY: y,
+      margin: { left: innerX, right: innerX },
+      headStyles: { fillColor: HDR_COLOR, textColor: 255 },
+      styles: { fontSize: 8, cellPadding: 2 },
+      columnStyles: {
+        0: { width: 60 },
+        1: { width: 40 },
+        2: { width: 40, halign: "center" },
+        3: { width: 40, halign: "center" }
+      },
+      didDrawPage: () => drawBorder(),
+    });
+
+    y = doc.lastAutoTable.finalY + 8;
+
+    // 5. Selected Programme Outcomes & PSO Configurations
+    y = sectionTitle("5. Programme Outcomes (POs) & PSOs", y);
+
+    const poRows = activePOs.filter(p => !p.startsWith("PSO")).map((po) => [
+      po,
+      NBA_POS.find((p) => p.id === po)?.label || "-"
+    ]);
+
+    autoTable(doc, {
+      head: [["PO ID", "Programme Outcome Description"]],
+      body: poRows,
+      startY: y,
+      margin: { left: innerX, right: innerX },
+      headStyles: { fillColor: HDR_COLOR, textColor: 255 },
+      styles: { fontSize: 8, cellPadding: 2 },
+      columnStyles: {
+        0: { fontStyle: "bold", width: 20 },
+        1: { width: 150 }
+      },
+      didDrawPage: () => drawBorder(),
+    });
+
+    y = doc.lastAutoTable.finalY + 6;
+
+    const psoConfig = (courseData.psoConfig || []).filter(p => p.label && p.label.trim() !== "");
+    if (psoConfig.length > 0) {
+      autoTable(doc, {
+        head: [["PSO ID", "PSO Description", "Mapped WK Indicators"]],
+        body: psoConfig.map(pso => [
+          pso.id,
+          pso.label || "-",
+          (pso.wks || []).join(", ") || "-"
+        ]),
+        startY: y,
+        margin: { left: innerX, right: innerX },
+        headStyles: { fillColor: HDR_COLOR, textColor: 255 },
+        styles: { fontSize: 8, cellPadding: 2 },
+        columnStyles: {
+          0: { fontStyle: "bold", width: 20 },
+          1: { width: 100 },
+          2: { width: 50 }
+        },
+        didDrawPage: () => drawBorder(),
+      });
+      y = doc.lastAutoTable.finalY + 8;
+    } else {
+      y += 2;
+    }
+
+    // 6. Step 1: CO to WK Connections Detail
+    y = sectionTitle("6. CO to Washington Accord Knowledge Profiles (WK) Connections", y);
+
+    const wkHeaders = ["CO", ...WK_LIST.map(wk => wk.id)];
+    const wkBody = courseData.cos.map(co => {
+      const row = [co.id];
+      WK_LIST.forEach(wk => {
+        row.push(coWks[co.id]?.[wk.id] ? "Yes" : "—");
+      });
+      return row;
+    });
+
+    autoTable(doc, {
+      head: [wkHeaders],
+      body: wkBody,
+      startY: y,
+      margin: { left: innerX, right: innerX },
+      headStyles: { fillColor: HDR_COLOR, textColor: 255 },
+      styles: { fontSize: 8, cellPadding: 2, halign: "center" },
+      columnStyles: {
+        0: { fontStyle: "bold", fillColor: [240, 244, 248], halign: "left", width: 15 }
+      },
+      didDrawPage: () => drawBorder(),
+    });
+
+    y = doc.lastAutoTable.finalY + 8;
+
+    // 7. Step 3: Performance Indicator (PI) Mapping Details (Entered by User)
+    y = sectionTitle("7. Step 3 — Performance Indicator Mapping (PO by PO)", y);
+
+    let hasPiMappings = false;
+    activePOs.forEach(po => {
+      const competencies = PO_COMPETENCIES[po] || [];
+      const connectedCos = courseData.cos.filter((co) => {
+        const wks = WK_LIST.filter((wk) => coWks[co.id]?.[wk.id]).map((wk) => wk.id);
+        return derivePOsFromWKs(wks, psoWkMap).includes(po);
+      });
+
+      if (connectedCos.length > 0) {
+        hasPiMappings = true;
+        const poObj = NBA_POS.find((p) => p.id === po);
+        
+        // Add PO Sub-header
+        if (y + 16 > bottomLimit) y = addPage();
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8.5);
+        doc.text(`${po} — ${poObj?.label || ""}`, innerX, y + 4);
+        y += 6;
+
+        const tableHeaders = ["Comp.", "PI", "Performance Indicator", ...connectedCos.map(co => co.id)];
+        const tableRows = [];
+        
+        competencies.forEach(comp => {
+          comp.pis.forEach(pi => {
+            const row = [
+              comp.id,
+              pi.id,
+              pi.label,
+              ...connectedCos.map(co => piAnswers[co.id]?.[po]?.[pi.id] ? "Yes" : "No")
+            ];
+            tableRows.push(row);
+          });
+        });
+
+        // Compute column widths dynamically
+        const numCos = connectedCos.length;
+        const coWidth = Math.max(10, 40 / Math.max(numCos, 1));
+        const descWidth = innerW - 30 - (coWidth * numCos);
+
+        const colStyles = {
+          0: { fontStyle: "bold", halign: "center", width: 15 },
+          1: { fontStyle: "bold", halign: "center", width: 15 },
+          2: { width: descWidth }
+        };
+        // Add dynamic CO column alignments/widths
+        for (let i = 0; i < numCos; i++) {
+          colStyles[3 + i] = { halign: "center", fontStyle: "bold", width: coWidth };
+        }
+
+        autoTable(doc, {
+          head: [tableHeaders],
+          body: tableRows,
+          startY: y,
+          margin: { left: innerX, right: innerX },
+          headStyles: { fillColor: HDR_COLOR, textColor: 255 },
+          styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
+          columnStyles: colStyles,
+          didDrawPage: () => drawBorder(),
+        });
+
+        y = doc.lastAutoTable.finalY + 8;
+      }
+    });
+
+    if (!hasPiMappings) {
+      if (y + 12 > bottomLimit) y = addPage();
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8.5);
+      doc.text("No active CO-PO connections found. Complete Step 1 mapping to enable PI checklist.", innerX, y + 4);
+      y += 8;
+    }
+
+    // 8. PI Rubric Thresholds
+    y = sectionTitle("8. PI Rubric Thresholds", y);
+
+    autoTable(doc, {
+      head: [["Rubric Level", "Threshold (% of Yes PIs)", "Meaning"]],
+      body: [
+        ["Level 1 (Low)",    `>= ${piRubric.t1}%`, `X >= ${piRubric.t1}% -> Mapping Value = 1`],
+        ["Level 2 (Medium)", `>= ${piRubric.t2}%`, `X >= ${piRubric.t2}% -> Mapping Value = 2`],
+        ["Level 3 (High)",   `>= ${piRubric.t3}%`, `X >= ${piRubric.t3}% -> Mapping Value = 3`],
+        ["Not Mapped",       `< ${piRubric.t1}%`,  `X < ${piRubric.t1}% -> Shown as ( - )`],
+      ],
+      startY: y,
+      margin: { left: innerX, right: innerX },
+      headStyles: { fillColor: HDR_COLOR, textColor: 255 },
+      styles: { fontSize: 8, cellPadding: 2 },
+      columnStyles: {
+        0: { fontStyle: "bold", width: 40 },
+        1: { width: 50, halign: "center" },
+        2: { width: innerW - 90 }
+      },
+      didDrawPage: () => drawBorder(),
+    });
+
+    y = doc.lastAutoTable.finalY + 8;
+
+    // 9. Resultant Mapping Matrix
+    y = sectionTitle("9. Resultant CO-PO & PSO Mapping Strength Matrix", y);
+
+    const headerRow = ["CO", ...activePOs];
+    const bodyRows = courseData.cos.map(co => {
+      const coWksList = Object.entries(coWks[co.id] || {})
+        .filter(([, v]) => v === true)
+        .map(([k]) => k);
+      const derived = derivePOsFromWKs(coWksList, psoWkMap);
+      const row = [co.id];
+      activePOs.forEach(po => {
+        if (!derived.includes(po)) {
+          row.push("—");
+        } else {
+          const comps = PO_COMPETENCIES[po] || [];
+          const answers = piAnswers[co.id]?.[po] || {};
+          const { value } = computeMappingValue(answers, comps, piRubric);
+          row.push(value === null ? "—" : String(value));
+        }
+      });
+      return row;
+    });
+
+    autoTable(doc, {
+      head: [headerRow],
+      body: bodyRows,
+      startY: y,
+      margin: { left: innerX, right: innerX },
+      headStyles: { fillColor: HDR_COLOR, textColor: 255 },
+      styles: { fontSize: 8, cellPadding: 2, halign: "center", fontStyle: "bold" },
+      columnStyles: {
+        0: { fontStyle: "bold", fillColor: [240, 244, 248], halign: "left" }
+      },
+      didDrawPage: () => drawBorder(),
+    });
+
+    doc.save(`Preliminary_Accreditation_Report_${course.courseCode || "Report"}.pdf`);
+  }
+
   return (
     <div>
       <header className="topbar">
@@ -459,8 +856,11 @@ export default function WKMapping() {
           <p className="eyebrow">Step 3b — Washington Accord</p>
           <h1>WK-based CO-PO Mapping</h1>
         </div>
-        <div className="top-actions">
+        <div className="top-actions" style={{ display: "flex", gap: 8 }}>
           <button className="secondary" onClick={() => navigate("/questions")}>← Back</button>
+          <button className="secondary" onClick={downloadPreliminaryReport} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Download size={14} /> Download Preliminary Report
+          </button>
           {/* Final apply only shown on Step 4 so faculty must complete all steps */}
           {activeSection === "result" && (
             <button onClick={applyToMapping}>Apply Mapping &amp; Next: Marks →</button>
@@ -580,7 +980,12 @@ export default function WKMapping() {
           />
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
             <button className="secondary" onClick={() => setActiveSection("pi")}>← Step 3</button>
-            <button onClick={applyToMapping}>Apply Mapping &amp; Next: Marks →</button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="secondary" onClick={downloadPreliminaryReport} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <Download size={14} /> Download Preliminary Report
+              </button>
+              <button onClick={applyToMapping}>Apply Mapping &amp; Next: Marks →</button>
+            </div>
           </div>
         </>
       )}

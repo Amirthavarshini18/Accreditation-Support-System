@@ -2,7 +2,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 
-class facultyuser(AbstractUser):
+class Facultyuser(AbstractUser):
     """Custom auth user model used by migrations (db_table: attainment_facultyuser)."""
 
     class Meta:

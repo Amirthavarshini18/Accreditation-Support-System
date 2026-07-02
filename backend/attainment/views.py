@@ -10,7 +10,8 @@ from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
 
-
+from google.oauth2 import id_token
+from google.auth.transport import requests
 
 from .models import Faculty, SystemSetting
 from .services.calculator import DEFAULT_COURSE_DATA, calculate_course_attainment
@@ -59,10 +60,16 @@ def auth_config(request):
     if request.method != 'GET':
         return JsonResponse({'message': 'GET request required'}, status=405)
     domain, inst = get_auth_config()
+    try:
+        client_id = SystemSetting.objects.get(key='google_client_id').value.strip()
+    except SystemSetting.DoesNotExist:
+        client_id = getattr(settings, 'GOOGLE_CLIENT_ID', '').strip()
+
     return JsonResponse({
         'success': True,
         'allowedDomain': domain,
-        'institutionName': inst
+        'institutionName': inst,
+        'googleClientId': client_id,
     })
 
 
@@ -204,6 +211,211 @@ def faculty_login(request):
             'accessToken':  str(refresh.access_token),
             'refreshToken': str(refresh),
         })
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid JSON payload.'}, status=400)
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
+
+
+@csrf_exempt
+def google_login(request):
+    """Verify Google ID token, authenticate existing faculty, or register new faculty."""
+    if request.method != 'POST':
+        return JsonResponse({'message': 'Google login endpoint ready'}, status=405)
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+        credential = payload.get('credential', '').strip()
+
+        if not credential:
+            # Hybrid mode fallback: if in DEBUG mode, allow manual mock login info
+            email = payload.get('email', '').strip().lower()
+            name = payload.get('name', '').strip()
+            if settings.DEBUG and email:
+                google_data = {
+                    'email': email,
+                    'name': name or email.split('@')[0],
+                    'aud': '',  # Bypasses audience check below
+                }
+            else:
+                return JsonResponse({'success': False, 'message': 'Google ID token (credential) is required.'}, status=400)
+        else:
+            # Verify ID token with Google's public endpoint
+            import urllib.request
+            token_info_url = f"https://oauth2.googleapis.com/tokeninfo?id_token={credential}"
+            try:
+                req = urllib.request.Request(token_info_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req) as response:
+                    google_data = json.loads(response.read().decode('utf-8'))
+            except Exception as e:
+                return JsonResponse({'success': False, 'message': f'Failed to verify token with Google: {str(e)}'}, status=400)
+
+        email = google_data.get('email', '').strip().lower()
+        name = google_data.get('name', '').strip()
+
+        if not email:
+            return JsonResponse({'success': False, 'message': 'Email address not provided by Google.'}, status=400)
+
+        # Check domain constraint
+        err = _validate_domain(email)
+        if err:
+            return JsonResponse({'success': False, 'message': err}, status=400)
+
+        # Verify audience (aud) matches the Google Client ID if configured
+        try:
+            client_id = SystemSetting.objects.get(key='google_client_id').value.strip()
+        except SystemSetting.DoesNotExist:
+            client_id = getattr(settings, 'GOOGLE_CLIENT_ID', '').strip()
+
+        aud = google_data.get('aud', '')
+        if credential and client_id and aud != client_id:
+            return JsonResponse({'success': False, 'message': 'Token audience mismatch (invalid client ID).'}, status=400)
+
+        # Get or create user
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            # Create user automatically if it is a new Google user
+            username = email.split('@')[0]
+            base, counter = username, 1
+            while User.objects.filter(username=username).exists():
+                username = f'{base}{counter}'
+                counter += 1
+
+            first, *rest = (name or username).split(' ', 1)
+            import uuid
+            user = User.objects.create_user(
+                username=username,
+                email=email,
+                password=str(uuid.uuid4()),
+                name=name,
+                first_name=first,
+                last_name=rest[0] if rest else '',
+                department='Computer Science & Engineering',
+                designation='Assistant Professor',
+                employee_id='',
+            )
+
+        if not user.is_active:
+            return JsonResponse({'success': False, 'message': 'This account has been deactivated.'}, status=403)
+
+        refresh = RefreshToken.for_user(user)
+        return JsonResponse({
+            'success':      True,
+            'message':      'Login successful via Google.',
+            'faculty':      _faculty_payload(user),
+            'accessToken':  str(refresh.access_token),
+            'refreshToken': str(refresh),
+        })
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid JSON payload.'}, status=400)
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
+
+
+@csrf_exempt
+def google_auth_api(request):
+    """
+    POST /api/auth/google/
+    Verifies Google ID token and returns JWT access and refresh tokens.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'message': 'POST request required'}, status=405)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+        credential = payload.get('credential', '').strip()
+
+        if not credential:
+            return JsonResponse({'success': False, 'message': 'Google ID token (credential) is required.'}, status=400)
+
+        # Verify the Google ID token using the official Google verification library
+        try:
+            client_id = SystemSetting.objects.get(key='google_client_id').value.strip()
+        except SystemSetting.DoesNotExist:
+            client_id = getattr(settings, 'GOOGLE_CLIENT_ID', '').strip()
+
+        try:
+            idinfo = id_token.verify_oauth2_token(credential, requests.Request(), client_id)
+        except ValueError as e:
+            return JsonResponse({'success': False, 'message': f'Invalid ID token: {str(e)}'}, status=400)
+
+        email = idinfo.get('email', '').strip().lower()
+        name = idinfo.get('name', '').strip()
+        email_verified = idinfo.get('email_verified', False)
+
+        # Reject login if email_verified is false
+        if email_verified is not True and str(email_verified).lower() != 'true':
+            return JsonResponse({'success': False, 'message': 'Google email address is not verified.'}, status=400)
+
+        # Reject login if email does not end with @nitc.ac.in (or the configured institution domain)
+        domain, inst = get_auth_config()
+        if not email.endswith(f'@{domain}'):
+            return JsonResponse({'success': False, 'message': f'Only @{domain} Google accounts are allowed.'}, status=400)
+
+        # Create or update user in custom Facultyuser model
+        try:
+            user = User.objects.get(email=email)
+            # Update user fields if name has changed or is empty
+            if name and user.name != name:
+                user.name = name
+                first, *rest = name.split(' ', 1)
+                user.first_name = first
+                user.last_name = rest[0] if rest else ''
+                user.save()
+        except User.DoesNotExist:
+            # Check if registration fields are provided
+            department = payload.get('department', '').strip()
+            designation = payload.get('designation', '').strip()
+            employee_id = payload.get('employee_id', '').strip()
+            custom_name = payload.get('name', '').strip() or name
+
+            if not department or not designation:
+                return JsonResponse({
+                    'success': False,
+                    'is_registered': False,
+                    'email': email,
+                    'name': name,
+                    'message': 'Account not registered. Please complete registration.'
+                }, status=404)
+
+            username = email.split('@')[0]
+            # Ensure username is unique
+            base, counter = username, 1
+            while User.objects.filter(username=username).exists():
+                username = f'{base}{counter}'
+                counter += 1
+
+            first, *rest = custom_name.split(' ', 1)
+            import uuid
+            user = User.objects.create_user(
+                username=username,
+                email=email,
+                password=str(uuid.uuid4()),
+                name=custom_name,
+                first_name=first,
+                last_name=rest[0] if rest else '',
+                department=department,
+                designation=designation,
+                employee_id=employee_id,
+            )
+
+        if not user.is_active:
+            return JsonResponse({'success': False, 'message': 'This account has been deactivated.'}, status=403)
+
+        # Generate JWT tokens using rest_framework_simplejwt
+        refresh = RefreshToken.for_user(user)
+        return JsonResponse({
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'name': user.name or user.get_full_name() or user.username,
+                'department': user.department,
+                'designation': user.designation,
+            }
+        })
+
     except json.JSONDecodeError:
         return JsonResponse({'success': False, 'message': 'Invalid JSON payload.'}, status=400)
     except Exception as e:
