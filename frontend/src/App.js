@@ -15,7 +15,6 @@ import MarksEntry from "./pages/MarksUpload";
 import IndirectSurvey from "./pages/ExitSurvey";
 import Report from "./pages/Report";
 import ExportPage from "./pages/ReportExport";
-import GoogleLoginSim from "./pages/GoogleLoginSim";
 
 import "./App.css";
 
@@ -102,7 +101,6 @@ function AppRoutes() {
     <>
       <Routes>
         <Route path="/login" element={faculty ? <Navigate to="/dashboard" replace /> : <Login />} />
-        <Route path="/google-login-sim" element={<GoogleLoginSim />} />
         <Route path="/" element={<Navigate to={faculty ? "/dashboard" : "/login"} replace />} />
 
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />

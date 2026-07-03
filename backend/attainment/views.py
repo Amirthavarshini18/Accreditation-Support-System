@@ -10,9 +10,6 @@ from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
 
-from google.oauth2 import id_token
-from google.auth.transport import requests
-
 from .models import Faculty, SystemSetting
 from .services.calculator import DEFAULT_COURSE_DATA, calculate_course_attainment
 from .services.excel_parser import parse_accreditation_workbook, parse_marks_workbook
@@ -21,18 +18,24 @@ User = get_user_model()
 
 
 def get_auth_config():
-    """Fetch allowed domain and institution name from SystemSetting table with fallbacks."""
+    """Fetch allowed domains and institution name from SystemSetting table with fallbacks."""
     try:
-        domain = SystemSetting.objects.get(key='allowed_email_domain').value.strip().lower()
+        raw = SystemSetting.objects.get(key='allowed_email_domain').value.strip().lower()
+        domains = [d.strip() for d in raw.split(',') if d.strip()]
     except SystemSetting.DoesNotExist:
-        domain = getattr(settings, 'ALLOWED_EMAIL_DOMAIN', 'nitc.ac.in').strip().lower()
+        setting = getattr(settings, 'ALLOWED_EMAIL_DOMAINS', None)
+        if isinstance(setting, list):
+            domains = [d.strip().lower() for d in setting if d.strip()]
+        else:
+            raw = getattr(settings, 'ALLOWED_EMAIL_DOMAIN', '')
+            domains = [d.strip().lower() for d in raw.split(',') if d.strip()]
 
     try:
         inst = SystemSetting.objects.get(key='institution_name').value.strip()
     except SystemSetting.DoesNotExist:
         inst = "NIT Calicut"
 
-    return domain, inst
+    return domains, inst
 
 
 def _faculty_payload(user):
@@ -48,9 +51,9 @@ def _faculty_payload(user):
 
 def _validate_domain(email):
     """Return error string or None."""
-    domain, inst = get_auth_config()
-    if not email.lower().endswith(f'@{domain}'):
-        return f'Only {inst} institutional email addresses (@{domain}) are permitted.'
+    domains, inst = get_auth_config()
+    if domains and not any(email.lower().endswith(f'@{d}') for d in domains):
+        return f'Only {inst} email addresses ({", ".join("@"+d for d in domains)}) are permitted.'
     return None
 
 
@@ -59,7 +62,7 @@ def auth_config(request):
     """Public endpoint to fetch authentication settings."""
     if request.method != 'GET':
         return JsonResponse({'message': 'GET request required'}, status=405)
-    domain, inst = get_auth_config()
+    domains, inst = get_auth_config()
     try:
         client_id = SystemSetting.objects.get(key='google_client_id').value.strip()
     except SystemSetting.DoesNotExist:
@@ -67,7 +70,8 @@ def auth_config(request):
 
     return JsonResponse({
         'success': True,
-        'allowedDomain': domain,
+        'allowedDomain': domains[0] if domains else '',
+        'allowedDomains': domains,
         'institutionName': inst,
         'googleClientId': client_id,
     })
@@ -328,34 +332,45 @@ def google_auth_api(request):
         if not credential:
             return JsonResponse({'success': False, 'message': 'Google ID token (credential) is required.'}, status=400)
 
-        # Verify the Google ID token using the official Google verification library
+        # Verify the Google ID token via Google's tokeninfo endpoint
+        import urllib.request as urlreq
+        try:
+            req = urlreq.Request(
+                f'https://oauth2.googleapis.com/tokeninfo?id_token={credential}',
+                headers={'User-Agent': 'Mozilla/5.0'}
+            )
+            with urlreq.urlopen(req, timeout=10) as resp:
+                idinfo = json.loads(resp.read().decode('utf-8'))
+        except Exception as e:
+            return JsonResponse({'success': False, 'message': f'Failed to verify token with Google: {str(e)}'}, status=400)
+
+        # Validate audience matches our client ID
         try:
             client_id = SystemSetting.objects.get(key='google_client_id').value.strip()
         except SystemSetting.DoesNotExist:
             client_id = getattr(settings, 'GOOGLE_CLIENT_ID', '').strip()
 
-        try:
-            idinfo = id_token.verify_oauth2_token(credential, requests.Request(), client_id)
-        except ValueError as e:
-            return JsonResponse({'success': False, 'message': f'Invalid ID token: {str(e)}'}, status=400)
+        if client_id and idinfo.get('aud') != client_id:
+            return JsonResponse({'success': False, 'message': 'Token audience mismatch.'}, status=400)
 
         email = idinfo.get('email', '').strip().lower()
         name = idinfo.get('name', '').strip()
         email_verified = idinfo.get('email_verified', False)
 
-        # Reject login if email_verified is false
-        if email_verified is not True and str(email_verified).lower() != 'true':
+        if not email:
+            return JsonResponse({'success': False, 'message': 'Email not provided by Google.'}, status=400)
+
+        if str(email_verified).lower() != 'true':
             return JsonResponse({'success': False, 'message': 'Google email address is not verified.'}, status=400)
 
-        # Reject login if email does not end with @nitc.ac.in (or the configured institution domain)
-        domain, inst = get_auth_config()
-        if not email.endswith(f'@{domain}'):
-            return JsonResponse({'success': False, 'message': f'Only @{domain} Google accounts are allowed.'}, status=400)
+        # Reject login if email does not match any allowed domain (empty list = allow all)
+        domains, inst = get_auth_config()
+        if domains and not any(email.endswith(f'@{d}') for d in domains):
+            return JsonResponse({'success': False, 'message': f'Only {inst} email accounts ({", ".join("@"+d for d in domains)}) are allowed.'}, status=400)
 
-        # Create or update user in custom Facultyuser model
+        # Create or update user
         try:
             user = User.objects.get(email=email)
-            # Update user fields if name has changed or is empty
             if name and user.name != name:
                 user.name = name
                 first, *rest = name.split(' ', 1)
@@ -363,7 +378,6 @@ def google_auth_api(request):
                 user.last_name = rest[0] if rest else ''
                 user.save()
         except User.DoesNotExist:
-            # Check if registration fields are provided
             department = payload.get('department', '').strip()
             designation = payload.get('designation', '').strip()
             employee_id = payload.get('employee_id', '').strip()
@@ -379,7 +393,6 @@ def google_auth_api(request):
                 }, status=404)
 
             username = email.split('@')[0]
-            # Ensure username is unique
             base, counter = username, 1
             while User.objects.filter(username=username).exists():
                 username = f'{base}{counter}'
@@ -402,18 +415,11 @@ def google_auth_api(request):
         if not user.is_active:
             return JsonResponse({'success': False, 'message': 'This account has been deactivated.'}, status=403)
 
-        # Generate JWT tokens using rest_framework_simplejwt
         refresh = RefreshToken.for_user(user)
         return JsonResponse({
             'access': str(refresh.access_token),
             'refresh': str(refresh),
-            'user': {
-                'id': user.id,
-                'email': user.email,
-                'name': user.name or user.get_full_name() or user.username,
-                'department': user.department,
-                'designation': user.designation,
-            }
+            'user': _faculty_payload(user),
         })
 
     except json.JSONDecodeError:

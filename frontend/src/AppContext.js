@@ -205,7 +205,8 @@ export function AppProvider({ children }) {
   const [showWelcome, setShowWelcome] = useState(false);
 
   const [authConfig, setAuthConfig] = useState({
-    allowedDomain: "nitc.ac.in",
+    allowedDomain: "",
+    allowedDomains: [],
     institutionName: "NIT Calicut",
     googleClientId: ""
   });
@@ -216,7 +217,8 @@ export function AppProvider({ children }) {
         const res = await axios.get(`${API_BASE}/auth/config/`);
         if (res.data && res.data.success) {
           setAuthConfig({
-            allowedDomain: res.data.allowedDomain,
+            allowedDomain: res.data.allowedDomain || "",
+            allowedDomains: res.data.allowedDomains || (res.data.allowedDomain ? [res.data.allowedDomain] : []),
             institutionName: res.data.institutionName,
             googleClientId: res.data.googleClientId
           });

@@ -26,8 +26,11 @@ ALLOWED_HOSTS = ['*']
 import os
 
 # Allowed institutional email domain — change here to support other institutions
-ALLOWED_EMAIL_DOMAIN = os.environ.get('ALLOWED_EMAIL_DOMAIN', 'nitc.ac.in')
-GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '1008719970978-574v2687dfarirud668r24h4up2.apps.googleusercontent.com')
+ALLOWED_EMAIL_DOMAINS = [
+    "nitc.ac.in",
+    "gmail.com",
+]
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '990394890626-gp3n2s0r81comlgaa5jgcvsiknku3i8t.apps.googleusercontent.com')
 
 # Custom user model must match the concrete model name used by migrations.
 # In this project the historical migration label is `facultyuser`.
